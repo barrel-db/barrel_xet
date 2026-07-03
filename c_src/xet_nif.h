@@ -1,0 +1,14 @@
+/* Shared declarations for the xet_nif feature files.
+ *
+ * One C file per feature: each file implements its NIF handlers and
+ * declares them here; xet_nif.c only registers them.
+ */
+#ifndef XET_NIF_H
+#define XET_NIF_H
+
+#include <erl_nif.h>
+
+/* xet_blake3.c */
+ERL_NIF_TERM xet_blake3_keyed(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]);
+
+#endif
