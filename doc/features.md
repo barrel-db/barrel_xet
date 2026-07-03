@@ -7,7 +7,7 @@ standalone CAS server.
 ## Phase 0: Bootstrap
 
 - [x] T0.1 Repo skeleton: rebar3 project, Makefile check target, app stubs
-- [ ] T0.2 Vendored spec, golden fixtures, fetch script, test vector constants
+- [x] T0.2 Vendored spec, golden fixtures, fetch script, test vector constants
 
 ## Phase 1: Primitives
 
