@@ -1,0 +1,5 @@
+CompileFlags:
+  Add:
+    - -I/opt/local/lib/erlang/erts-17.0/include
+    - -I./blake3
+    - -std=c11
