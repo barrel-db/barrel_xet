@@ -14,7 +14,7 @@ standalone CAS server.
 - [x] T1.1 C NIF scaffold + BLAKE3 keyed hashing
 - [x] T1.2 LZ4 Frame compress/decompress with output cap
 - [x] T1.3 Hash string format + BG4 transform + BG4 predictor
-- [ ] T1.4 Merkle tree + chunk/xorb/file/verification/keyed hashes
+- [x] T1.4 Merkle tree + chunk/xorb/file/verification/keyed hashes
 - [ ] T1.5 Gearhash chunker: NIF scanner + pure reference + equivalence
 
 ## Phase 2: Formats
