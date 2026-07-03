@@ -4,9 +4,16 @@
 %% chunk-sized and xorb-sized workloads never block normal schedulers.
 -module(xet_nif).
 
--export([blake3_keyed/2]).
+-export([blake3_keyed/2, lz4f_compress/1, lz4f_decompress/2]).
 
--nifs([blake3_keyed_nif/2, blake3_keyed_dirty_nif/2]).
+-nifs([
+    blake3_keyed_nif/2,
+    blake3_keyed_dirty_nif/2,
+    lz4f_compress_nif/1,
+    lz4f_compress_dirty_nif/1,
+    lz4f_decompress_nif/2,
+    lz4f_decompress_dirty_nif/2
+]).
 -on_load(init/0).
 
 -define(DIRTY_THRESHOLD, 16384).
@@ -17,6 +24,23 @@ blake3_keyed(Key, Data) when is_binary(Key), byte_size(Key) =:= 32 ->
     case iolist_size(Data) > ?DIRTY_THRESHOLD of
         true -> blake3_keyed_dirty_nif(Key, Data);
         false -> blake3_keyed_nif(Key, Data)
+    end.
+
+%% Compress data as one complete LZ4 frame (spec compression type 1).
+-spec lz4f_compress(iodata()) -> binary().
+lz4f_compress(Data) ->
+    case iolist_size(Data) > ?DIRTY_THRESHOLD of
+        true -> lz4f_compress_dirty_nif(Data);
+        false -> lz4f_compress_nif(Data)
+    end.
+
+%% Decompress one complete LZ4 frame, rejecting output larger than MaxSize.
+-spec lz4f_decompress(iodata(), non_neg_integer()) ->
+    {ok, binary()} | {error, corrupt | truncated | too_large | trailing_data}.
+lz4f_decompress(Data, MaxSize) when is_integer(MaxSize), MaxSize >= 0 ->
+    case iolist_size(Data) > ?DIRTY_THRESHOLD of
+        true -> lz4f_decompress_dirty_nif(Data, MaxSize);
+        false -> lz4f_decompress_nif(Data, MaxSize)
     end.
 
 init() ->
@@ -35,4 +59,16 @@ blake3_keyed_nif(_Key, _Data) ->
     erlang:nif_error(nif_not_loaded).
 
 blake3_keyed_dirty_nif(_Key, _Data) ->
+    erlang:nif_error(nif_not_loaded).
+
+lz4f_compress_nif(_Data) ->
+    erlang:nif_error(nif_not_loaded).
+
+lz4f_compress_dirty_nif(_Data) ->
+    erlang:nif_error(nif_not_loaded).
+
+lz4f_decompress_nif(_Data, _MaxSize) ->
+    erlang:nif_error(nif_not_loaded).
+
+lz4f_decompress_dirty_nif(_Data, _MaxSize) ->
     erlang:nif_error(nif_not_loaded).

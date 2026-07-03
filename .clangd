@@ -2,4 +2,6 @@ CompileFlags:
   Add:
     - -I/opt/local/lib/erlang/erts-17.0/include
     - -I./blake3
+    - -I./lz4
+    - -xc
     - -std=c11

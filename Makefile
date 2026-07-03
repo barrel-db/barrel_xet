@@ -37,8 +37,7 @@ dialyzer:
 cover:
 	$(REBAR) as test cover
 
-# proper joins check in Phase 1, once the first prop_* module exists.
-check: fmt-check compile xref lint eunit ct dialyzer
+check: fmt-check compile xref lint eunit proper ct dialyzer
 
 fixtures:
 	sh scripts/fetch_fixtures.sh

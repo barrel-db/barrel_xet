@@ -9,6 +9,10 @@
 static ErlNifFunc nif_funcs[] = {
     {"blake3_keyed_nif", 2, xet_blake3_keyed, 0},
     {"blake3_keyed_dirty_nif", 2, xet_blake3_keyed, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"lz4f_compress_nif", 1, xet_lz4f_compress, 0},
+    {"lz4f_compress_dirty_nif", 1, xet_lz4f_compress, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"lz4f_decompress_nif", 2, xet_lz4f_decompress, 0},
+    {"lz4f_decompress_dirty_nif", 2, xet_lz4f_decompress, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 };
 
 ERL_NIF_INIT(xet_nif, nif_funcs, NULL, NULL, NULL, NULL)

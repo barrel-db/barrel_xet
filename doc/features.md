@@ -12,7 +12,7 @@ standalone CAS server.
 ## Phase 1: Primitives
 
 - [x] T1.1 C NIF scaffold + BLAKE3 keyed hashing
-- [ ] T1.2 LZ4 Frame compress/decompress with output cap
+- [x] T1.2 LZ4 Frame compress/decompress with output cap
 - [ ] T1.3 Hash string format + BG4 transform + BG4 predictor
 - [ ] T1.4 Merkle tree + chunk/xorb/file/verification/keyed hashes
 - [ ] T1.5 Gearhash chunker: NIF scanner + pure reference + equivalence
