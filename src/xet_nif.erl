@@ -4,7 +4,7 @@
 %% chunk-sized and xorb-sized workloads never block normal schedulers.
 -module(xet_nif).
 
--export([blake3_keyed/2, lz4f_compress/1, lz4f_decompress/2]).
+-export([blake3_keyed/2, lz4f_compress/1, lz4f_decompress/2, gearhash_scan/3]).
 
 -nifs([
     blake3_keyed_nif/2,
@@ -12,7 +12,9 @@
     lz4f_compress_nif/1,
     lz4f_compress_dirty_nif/1,
     lz4f_decompress_nif/2,
-    lz4f_decompress_dirty_nif/2
+    lz4f_decompress_dirty_nif/2,
+    gearhash_scan_nif/3,
+    gearhash_scan_dirty_nif/3
 ]).
 -on_load(init/0).
 
@@ -43,6 +45,16 @@ lz4f_decompress(Data, MaxSize) when is_integer(MaxSize), MaxSize >= 0 ->
         false -> lz4f_decompress_nif(Data, MaxSize)
     end.
 
+%% Gearhash boundary scan over one buffer, carrying {H, ChunkLen} rolling
+%% state across calls. Returns cut end-offsets relative to this buffer.
+-spec gearhash_scan(non_neg_integer(), non_neg_integer(), iodata()) ->
+    {[non_neg_integer()], non_neg_integer(), non_neg_integer()}.
+gearhash_scan(H, ChunkLen, Data) ->
+    case iolist_size(Data) > ?DIRTY_THRESHOLD of
+        true -> gearhash_scan_dirty_nif(H, ChunkLen, Data);
+        false -> gearhash_scan_nif(H, ChunkLen, Data)
+    end.
+
 init() ->
     erlang:load_nif(filename:join(priv_dir(), "xet_nif"), 0).
 
@@ -71,4 +83,10 @@ lz4f_decompress_nif(_Data, _MaxSize) ->
     erlang:nif_error(nif_not_loaded).
 
 lz4f_decompress_dirty_nif(_Data, _MaxSize) ->
+    erlang:nif_error(nif_not_loaded).
+
+gearhash_scan_nif(_H, _ChunkLen, _Data) ->
+    erlang:nif_error(nif_not_loaded).
+
+gearhash_scan_dirty_nif(_H, _ChunkLen, _Data) ->
     erlang:nif_error(nif_not_loaded).

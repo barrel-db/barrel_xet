@@ -15,4 +15,7 @@ ERL_NIF_TERM xet_blake3_keyed(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[
 ERL_NIF_TERM xet_lz4f_compress(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]);
 ERL_NIF_TERM xet_lz4f_decompress(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]);
 
+/* xet_gearhash.c */
+ERL_NIF_TERM xet_gearhash_scan(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]);
+
 #endif
