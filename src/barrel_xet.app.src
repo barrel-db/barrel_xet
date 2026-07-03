@@ -1,0 +1,18 @@
+{application, barrel_xet, [
+    {description, "XET content-addressable storage protocol: client and CAS server"},
+    {vsn, "0.1.0"},
+    {registered, [barrel_xet_sup]},
+    {mod, {barrel_xet_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        crypto,
+        ssl,
+        livery,
+        livery_s3
+    ]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, [{"Spec", "https://datatracker.ietf.org/doc/draft-denis-xet/"}]}
+]}.

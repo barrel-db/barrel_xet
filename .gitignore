@@ -1,0 +1,14 @@
+_build/
+_checkouts/
+*.beam
+*.o
+*.so
+*.d
+erl_crash.dump
+rebar3.crashdump
+.rebar3/
+doc/edoc/
+test/fixtures/large/
+priv/*.so
+c_src/*.o
+.DS_Store
