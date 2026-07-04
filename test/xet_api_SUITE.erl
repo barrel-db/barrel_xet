@@ -26,7 +26,11 @@
     reconstruction_errors/1,
     reconstruction_empty_file/1,
     reconstruction_v2_consistency/1,
-    head_file/1
+    head_file/1,
+    data_roundtrip/1,
+    data_range/1,
+    data_forbidden/1,
+    data_errors/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
@@ -55,7 +59,11 @@ all() ->
         reconstruction_errors,
         reconstruction_empty_file,
         reconstruction_v2_consistency,
-        head_file
+        head_file,
+        data_roundtrip,
+        data_range,
+        data_forbidden,
+        data_errors
     ].
 
 init_per_suite(Config) ->
@@ -466,6 +474,105 @@ head_file(_Config) ->
         head, base() ++ Unknown, [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}], <<>>, []
     ),
     ?assertEqual(404, S2).
+
+%%--------------------------------------------------------------------
+%% Data endpoint (signed URLs, no bearer auth)
+%%--------------------------------------------------------------------
+
+fetch_url(World) ->
+    {200, _, Body} = get_json(reconstruction_path("/api/v1/reconstructions/", World), []),
+    XorbHashStr = xet_hash:to_string(maps:get(hash, maps:get(xorb, World))),
+    #{XorbHashStr := [Fetch]} = maps:get(<<"fetch_info">>, Body),
+    {maps:get(<<"url">>, Fetch), maps:get(<<"url_range">>, Fetch)}.
+
+raw_get(Url, Headers) ->
+    {ok, Status, RespHeaders, Body} = hackney:request(get, Url, Headers, <<>>, [with_body]),
+    {Status, RespHeaders, Body}.
+
+data_roundtrip(_Config) ->
+    World = registered_file([70, 71, 72]),
+    {Url, UrlRange} = fetch_url(World),
+    {200, Headers, Body} = raw_get(Url, []),
+    Stored = maps:get(bin, maps:get(xorb, World)),
+    ?assertEqual(Stored, Body),
+    HashStr = xet_hash:to_string(maps:get(hash, maps:get(xorb, World))),
+    ?assertEqual(<<"\"", HashStr/binary, "\"">>, proplists:get_value(<<"etag">>, Headers)),
+    CacheControl = proplists:get_value(<<"cache-control">>, Headers),
+    <<"public, immutable, max-age=", AgeBin/binary>> = CacheControl,
+    Age = binary_to_integer(AgeBin),
+    ?assert(Age > 0 andalso Age =< 900),
+    ?assertNotEqual(undefined, proplists:get_value(<<"expires">>, Headers)),
+    %% Fetch exactly the advertised url_range: the chunk region parses.
+    RangeHeader = iolist_to_binary(
+        io_lib:format("bytes=~b-~b", [
+            maps:get(<<"start">>, UrlRange), maps:get(<<"end">>, UrlRange)
+        ])
+    ),
+    {206, RangeHeaders, Region} = raw_get(Url, [{<<"range">>, RangeHeader}]),
+    ?assertNotEqual(undefined, proplists:get_value(<<"content-range">>, RangeHeaders)),
+    {ok, Chunks} = xet_xorb:parse_chunk_stream(Region),
+    ?assertEqual(length(maps:get(entries, World)), length(Chunks)).
+
+data_range(_Config) ->
+    World = registered_file([73, 74]),
+    {Url, _} = fetch_url(World),
+    Stored = maps:get(bin, maps:get(xorb, World)),
+    {206, _, Slice} = raw_get(Url, [{<<"range">>, <<"bytes=10-99">>}]),
+    ?assertEqual(binary:part(Stored, 10, 90), Slice),
+    {206, _, Tail} = raw_get(Url, [{<<"range">>, <<"bytes=-25">>}]),
+    ?assertEqual(binary:part(Stored, byte_size(Stored) - 25, 25), Tail),
+    %% End clamps at EOF.
+    {206, _, Clamped} = raw_get(Url, [
+        {<<"range">>, iolist_to_binary(io_lib:format("bytes=~b-99999999", [byte_size(Stored) - 5]))}
+    ]),
+    ?assertEqual(binary:part(Stored, byte_size(Stored) - 5, 5), Clamped).
+
+data_forbidden(_Config) ->
+    World = registered_file([75]),
+    {Url, _} = fetch_url(World),
+    %% Tampered signature.
+    {403, _, _} = raw_get(binary:replace(Url, <<"&sig=">>, <<"&sig=x">>), []),
+    %% Expired but correctly signed URL.
+    Env = xet_server:env(xet_api_server),
+    Secret = maps:get(url_secret, maps:get(config, Env)),
+    HashStr = xet_hash:to_string(maps:get(hash, maps:get(xorb, World))),
+    Past = erlang:system_time(second) - 10,
+    Sig = xet_url_signer:sign(Secret, <<"default">>, HashStr, Past),
+    Expired = iolist_to_binary([
+        base(),
+        "/api/v1/xorbs/default/",
+        HashStr,
+        "/data?exp=",
+        integer_to_binary(Past),
+        "&sig=",
+        Sig
+    ]),
+    {403, _, Body} = raw_get(Expired, []),
+    ?assertEqual(#{<<"error">> => <<"expired">>}, json:decode(Body)),
+    %% Missing signature entirely.
+    Bare = hd(binary:split(Url, <<"?">>)),
+    {403, _, _} = raw_get(Bare, []).
+
+data_errors(_Config) ->
+    World = registered_file([76]),
+    {Url, _} = fetch_url(World),
+    {416, _, _} = raw_get(Url, [{<<"range">>, <<"bytes=99999999-100000000">>}]),
+    %% Correctly signed URL for a hash that does not exist.
+    Env = xet_server:env(xet_api_server),
+    Secret = maps:get(url_secret, maps:get(config, Env)),
+    Ghost = xet_hash:to_string(<<424242:256>>),
+    Exp = erlang:system_time(second) + 100,
+    Sig = xet_url_signer:sign(Secret, <<"default">>, Ghost, Exp),
+    Missing = iolist_to_binary([
+        base(),
+        "/api/v1/xorbs/default/",
+        Ghost,
+        "/data?exp=",
+        integer_to_binary(Exp),
+        "&sig=",
+        Sig
+    ]),
+    {404, _, _} = raw_get(Missing, []).
 
 %% Any single corrupted byte outside the ignorable nonce yields 400; a
 %% nonce flip is indistinguishable content and lands 200.

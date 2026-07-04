@@ -14,7 +14,8 @@ compile(_Config) ->
         {<<"HEAD">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:head/1},
         {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1},
         {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v1/1},
-        {<<"HEAD">>, <<"/files/:hash">>, fun xet_h_reconstructions:head_file/1}
+        {<<"HEAD">>, <<"/files/:hash">>, fun xet_h_reconstructions:head_file/1},
+        {<<"GET">>, <<"/xorbs/:ns/:hash/data">>, fun xet_h_data:get/1}
     ],
     V2 = [
         {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v2/1}
@@ -85,8 +86,12 @@ auth_middleware(#{auth := AuthCfg}) ->
         end
     end.
 
-requires_auth(<<"/healthz">>) -> false;
-requires_auth(_) -> true.
+requires_auth(<<"/healthz">>) ->
+    false;
+requires_auth(Path) ->
+    %% The data endpoint authenticates by URL signature (spec 13.7.1);
+    %% intermediaries and browsers fetch it without bearer tokens.
+    binary:longest_common_suffix([Path, <<"/data">>]) =/= 5.
 
 scope_for(<<"GET">>) -> read;
 scope_for(<<"HEAD">>) -> read;

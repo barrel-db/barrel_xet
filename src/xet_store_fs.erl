@@ -8,7 +8,7 @@
 
 -behaviour(xet_blob_store).
 
--export([open/1, close/1, put/4, get_range/5, size/3, exists/3, delete/3]).
+-export([open/1, close/1, put/4, get_range/5, size/3, exists/3, delete/3, local_path/3]).
 
 open(#{dir := Root}) ->
     ok = filelib:ensure_path(Root),
@@ -105,6 +105,9 @@ delete(State, Ns, Hash) ->
             {error, _} = Error -> Error
         end
     end.
+
+local_path(State, Ns, Hash) ->
+    blob_path(State, Ns, Hash).
 
 blob_path(#{root := Root}, Ns, Hash) ->
     case xet_blob_store:valid_namespace(Ns) of

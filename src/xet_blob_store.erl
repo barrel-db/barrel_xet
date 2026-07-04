@@ -9,7 +9,7 @@
 -module(xet_blob_store).
 
 -export([open/2, close/1, put/4, get_range/5, size/3, exists/3, delete/3, presign/4]).
--export([valid_namespace/1]).
+-export([local_path/3, valid_namespace/1]).
 
 -type handle() :: {module(), term()}.
 -type body() :: iodata() | {stream, producer()}.
@@ -26,8 +26,10 @@
 -callback delete(term(), binary(), xet_hash:hash()) -> ok | {error, term()}.
 -callback presign(term(), binary(), xet_hash:hash(), pos_integer()) ->
     {ok, binary()} | {error, term()}.
+-callback local_path(term(), binary(), xet_hash:hash()) ->
+    {ok, file:filename_all()} | {error, term()}.
 
--optional_callbacks([presign/4]).
+-optional_callbacks([presign/4, local_path/3]).
 
 -spec open(module(), map()) -> {ok, handle()} | {error, term()}.
 open(Mod, Opts) ->
@@ -62,6 +64,16 @@ delete({Mod, State}, Ns, Hash) -> Mod:delete(State, Ns, Hash).
 presign({Mod, State}, Ns, Hash, ExpiresSecs) ->
     case erlang:function_exported(Mod, presign, 4) of
         true -> Mod:presign(State, Ns, Hash, ExpiresSecs);
+        false -> {error, not_supported}
+    end.
+
+%% Local file path of a blob when the backend serves from disk (used by
+%% the range-serving data endpoint; livery streams the file directly).
+-spec local_path(handle(), binary(), xet_hash:hash()) ->
+    {ok, file:filename_all()} | {error, not_supported | term()}.
+local_path({Mod, State}, Ns, Hash) ->
+    case erlang:function_exported(Mod, local_path, 3) of
+        true -> Mod:local_path(State, Ns, Hash);
         false -> {error, not_supported}
     end.
 
