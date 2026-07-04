@@ -27,7 +27,11 @@ init_per_group(fake, Config) ->
             endpoint => list_to_binary("http://127.0.0.1:" ++ integer_to_list(Port)),
             region => <<"garage">>,
             access_key_id => <<"test">>,
-            secret_access_key => <<"testsecret">>
+            secret_access_key => <<"testsecret">>,
+            %% No connection pool: the fake server is single-use, and a
+            %% pooled keep-alive it has recycled surfaces as {error,
+            %% bad_request} on the next (streamed, non-replayable) request.
+            adapter_opts => #{hackney => [{pool, false}]}
         }
     }),
     [{store, Store}, {fake, Fake} | Config];

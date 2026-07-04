@@ -133,8 +133,12 @@ run_python(Config, Args) ->
         ["python3", Script, hd(Args), endpoint(Config), binary_to_list(?TOKEN)] ++ tl(Args),
         " "
     ),
-    Output = os:cmd(Full ++ "; echo EXIT:$?"),
-    parse_exit(Output).
+    %% Fold stderr into the captured output so a failing driver shows its
+    %% traceback in the CT log instead of a bare exit code.
+    Output = os:cmd(Full ++ " 2>&1; echo EXIT:$?"),
+    Code = parse_exit(Output),
+    Code =:= 0 orelse ct:pal("python ~s failed (exit ~p):~n~s", [hd(Args), Code, Output]),
+    Code.
 
 %% The driver lives in the source tree, not the build output.
 project_root() ->
