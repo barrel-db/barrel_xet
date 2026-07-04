@@ -42,14 +42,27 @@ compile(_Config) ->
 health(_Req) ->
     livery_resp:json(200, json:encode(#{status => <<"ok">>})).
 
-%% Listener middleware, outermost first: request id, optional rate
-%% limiting and concurrency caps, then bearer auth.
+%% Listener middleware, outermost first: request id, optional
+%% observability (metrics + trace), optional rate limiting and
+%% concurrency caps, then bearer auth.
 -spec stack(map()) -> [term()].
 stack(Config) ->
     [{livery_request_id, #{}}] ++
+        observability(Config) ++
         ratelimit(Config) ++
         concurrency(Config) ++
         [auth_middleware(Config)].
+
+%% instrument-backed OpenTelemetry metrics and tracing. Both middlewares
+%% degrade gracefully if the instrument registry is not running, so this
+%% is safe to enable even before an exporter is configured.
+observability(#{observability := true}) ->
+    [
+        {livery_instrument_metrics, #{meter => <<"barrel_xet">>}},
+        {livery_instrument_trace, #{tracer => <<"barrel_xet">>}}
+    ];
+observability(_Config) ->
+    [].
 
 %% Token bucket per bearer token: #{capacity := N, per_second := Rate}
 %% plus any livery_ratelimit option (key fun, status, ...).

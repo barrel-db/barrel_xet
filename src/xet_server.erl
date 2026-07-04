@@ -15,6 +15,7 @@
 -spec start(map()) -> {ok, pid()} | {error, term()}.
 start(Config0) ->
     {ok, _} = application:ensure_all_started([barrel_xet]),
+    maybe_start_instrument(Config0),
     Config = normalize(Config0),
     Name = maps:get(name, Config),
     Spec = #{
@@ -70,6 +71,14 @@ init(Config) ->
         }
     ],
     {ok, {SupFlags, Children}}.
+
+%% Observability needs the instrument registry running; start it on
+%% demand so metrics/trace middleware have somewhere to record.
+maybe_start_instrument(#{observability := true}) ->
+    {ok, _} = application:ensure_all_started(instrument),
+    ok;
+maybe_start_instrument(_Config) ->
+    ok.
 
 normalize(Config) ->
     DataDir = maps:get(data_dir, Config),
