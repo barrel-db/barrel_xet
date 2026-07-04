@@ -36,7 +36,9 @@ init(#{name := Name} = Config) ->
 service_opts(Config) ->
     Base = #{
         router => xet_routes:compile(Config),
-        middleware => xet_routes:stack(Config)
+        middleware => xet_routes:stack(Config),
+        %% Handlers resolve their instance environment through this.
+        config => #{server => maps:get(name, Config)}
     },
     MaxBody = maps:get(max_body, Config),
     WithListeners = lists:foldl(

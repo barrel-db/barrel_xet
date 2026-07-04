@@ -8,7 +8,7 @@
 %%   shrink it, which also keeps compressed_size <= MAX_CHUNK_SIZE.
 -module(xet_xorb).
 
--export([encode/1, encode/2, decode/1, parse_chunk_stream/1, extract_range/3]).
+-export([encode/1, encode/2, decode/1, decode_any/1, parse_chunk_stream/1, extract_range/3]).
 -export([chunk_byte_range/2]).
 
 -define(MAX_XORB_SIZE, 67108864).
@@ -198,6 +198,37 @@ boundaries_loop(<<0, CompSize:24/little, _Type, _USize:24/little, Rest/binary>>,
     <<_:CompSize/binary, Next/binary>> = Rest,
     End = Pos + 8 + CompSize,
     boundaries_loop(Next, End, [End | Acc]).
+
+%% Accept either serialized form on the upload path: a full xorb with a
+%% CasObjectInfo footer (validated strictly) or a bare chunk stream
+%% (xet-core's serialize_footer is optional), for which the layout is
+%% recomputed from the chunks themselves.
+-spec decode_any(binary()) -> {ok, decoded()} | {error, term()}.
+decode_any(Bin) ->
+    case xet_xorb_footer:decode(Bin) of
+        {ok, _} ->
+            decode(Bin);
+        {error, _} ->
+            decode_bare(Bin)
+    end.
+
+decode_bare(Bin) ->
+    case parse_chunk_stream(Bin) of
+        {ok, Chunks} ->
+            Computed = [xet_hash:chunk_hash(C) || C <- Chunks],
+            Sizes = [byte_size(C) || C <- Chunks],
+            {ok, #{
+                chunks => Chunks,
+                hash => xet_hash:xorb_hash(lists:zip(Computed, Sizes)),
+                chunk_hashes => Computed,
+                boundary_offsets => actual_boundaries(Bin),
+                unpacked_offsets => cumulative(Sizes),
+                bytes_on_disk => byte_size(Bin),
+                total_unpacked => lists:sum(Sizes)
+            }};
+        {error, _} = Error ->
+            Error
+    end.
 
 %% Parse and decompress a bare chunk stream (headers + payloads, no
 %% footer), as downloaded from a fetch URL byte range.

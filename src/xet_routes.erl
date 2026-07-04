@@ -5,10 +5,22 @@
 
 -export([compile/1, stack/1, error_response/2]).
 
+%% Endpoints register under /api/v1 and /v1 (the OpenAPI spells the
+%% first, xet-core clients build the second).
 -spec compile(map()) -> livery_router:router().
 compile(_Config) ->
+    Api = [
+        {<<"POST">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:upload/1},
+        {<<"HEAD">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:head/1}
+    ],
+    Prefixed = [
+        {Method, <<Prefix/binary, Pattern/binary>>, Handler}
+     || Prefix <- [<<"/api/v1">>, <<"/v1">>],
+        {Method, Pattern, Handler} <- Api
+    ],
     livery_router:compile([
         {<<"GET">>, <<"/healthz">>, fun health/1}
+        | Prefixed
     ]).
 
 health(_Req) ->

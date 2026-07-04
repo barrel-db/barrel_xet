@@ -74,6 +74,10 @@ normalize(Config) ->
         blob => {fs, #{dir => filename:join(DataDir, "xorbs")}},
         namespaces => [<<"default">>, <<"default-merkledb">>],
         max_body => ?DEFAULT_MAX_BODY,
+        %% Serialized xorb cap: 64 MiB of chunk payload plus headers and
+        %% footer headroom.
+        max_xorb_bytes => 71303168,
+        spool_memory_max => 16777216,
         ratelimit => false,
         concurrency => false
     },

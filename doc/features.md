@@ -31,13 +31,13 @@ standalone CAS server.
 ## Phase 4: Server storage
 
 - [x] T4.1 xet_metadata behaviour + rocksdb backend (column families)
-- [ ] T4.2 xet_blob_store behaviour + filesystem backend
-- [ ] T4.3 S3 backend on livery_s3 + Garage CT suite
+- [x] T4.2 xet_blob_store behaviour + filesystem backend
+- [x] T4.3 S3 backend on livery_s3 + Garage CT suite
 
 ## Phase 5: Server API
 
 - [x] T5.1 Service skeleton: routes, auth, middleware, healthz
-- [ ] T5.2 Xorb upload (spool, validate, commit) + HEAD
+- [x] T5.2 Xorb upload (spool, validate, commit) + HEAD
 - [ ] T5.3 Shard upload + registration
 - [ ] T5.4 Reconstruction endpoints v1 + v2 + HEAD files
 - [ ] T5.5 FS data endpoint + caching header conformance
