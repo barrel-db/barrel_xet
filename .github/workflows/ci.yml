@@ -28,7 +28,7 @@ jobs:
           otp-version: '29'
           rebar3-version: '3.25.0'
       - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
       - uses: actions/cache@v5
         with:
           path: |
@@ -47,7 +47,7 @@ jobs:
           otp-version: '29'
           rebar3-version: '3.25.0'
       - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
       - uses: actions/cache@v5
         with:
           path: |
@@ -66,7 +66,7 @@ jobs:
           otp-version: '29'
           rebar3-version: '3.25.0'
       - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
       - uses: actions/cache@v5
         with:
           path: |
@@ -93,7 +93,7 @@ jobs:
           otp-version: '29'
           rebar3-version: '3.25.0'
       - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
       - name: Python reference client (cross-impl e2e)
         run: python3 -m pip install --quiet blake3 lz4 requests || true
       - uses: actions/cache@v5
@@ -117,5 +117,5 @@ jobs:
           otp-version: '29'
           rebar3-version: '3.25.0'
       - name: System deps
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential curl
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential curl liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
       - run: make smoke

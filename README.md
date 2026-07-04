@@ -13,7 +13,13 @@ Ships a client library, a standalone CAS server, and a CLI.
 - Client with global + local deduplication, parallel transfers, retry and
   circuit-breaking via livery_client layers.
 
-Requires OTP 27+ (developed on 29), rebar3, and a C toolchain (cmake).
+Requires OTP 27+ (developed on 29), rebar3, and a C toolchain (cmake). On
+Linux, rocksdb's build also needs the compression dev libraries:
+
+```sh
+sudo apt-get install -y cmake build-essential \
+    liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
+```
 
 ## Build and test
 
