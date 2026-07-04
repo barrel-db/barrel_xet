@@ -1,13 +1,21 @@
-%% XET CAS client: raw endpoint calls over livery_client. Auth (bearer +
-%% optional refresh), the xet-core retry taxonomy (xet_client_retry), a
-%% per-client X-Xet-Session-Id, and V2-first reconstruction with V1
-%% fallback. Upload/download pipelines build on these in later tasks.
+%% XET CAS client: raw endpoint calls over livery_client. Retry,
+%% circuit breaking, and concurrency limiting are livery_client layers
+%% (built into the client's stack), so we reuse livery's Tower-style
+%% middleware rather than reimplementing it. Auth (bearer + optional
+%% refresh), a per-client X-Xet-Session-Id, and V2-first reconstruction
+%% with V1 fallback.
+%%
+%% The retry layer is configured with the xet-core status set and
+%% retry_non_idempotent (our POSTs are content-addressed, hence safe to
+%% replay); bodies are full binaries, never one-shot streams, so the
+%% layer's stream guard never blocks a retry. It also retries transport
+%% errors, covering stale pooled connections.
 %%
 %% Path dialect: draft (default) uses /api/v1 and /api/v2; hf posts
 %% shards to the bare /shards path and uses /v1, /v2 (xet-core style).
 -module(xet_client).
 
--export([new/1]).
+-export([new/1, retry_layer/1]).
 -export([
     upload_xorb/4,
     head_xorb/3,
@@ -22,23 +30,54 @@
     http := term(),
     token := xet_client_token:provider(),
     dialect := draft | hf,
-    session_id := binary(),
-    retry := map(),
-    timeout := timeout()
+    session_id := binary()
 }.
 -export_type([client/0]).
+
+%% xet-core retry taxonomy: 5xx, 408, 429 (plus transport errors) with
+%% exponential backoff from 3 s, 5 extra attempts. retry_non_idempotent
+%% covers our content-addressed POST uploads.
+-define(RETRY_DEFAULTS, #{
+    max => 5,
+    backoff => {3000, 2.0},
+    statuses => [408, 429, 500, 502, 503, 504],
+    retry_non_idempotent => true,
+    retry_after_max => 360000
+}).
 
 -spec new(map()) -> client().
 new(Opts) ->
     Endpoint = maps:get(endpoint, Opts),
+    Http = livery_client:new(#{base_url => Endpoint, stack => stack(Opts)}),
     #{
-        http => livery_client:new(#{base_url => Endpoint, stack => maps:get(stack, Opts, [])}),
+        http => Http,
         token => xet_client_token:new(maps:get(token, Opts, <<>>)),
         dialect => maps:get(dialect, Opts, draft),
-        session_id => maps:get(session_id, Opts, gen_session_id()),
-        retry => maps:merge(xet_client_retry:defaults(), maps:get(retry, Opts, #{})),
-        timeout => maps:get(timeout, Opts, 300000)
+        session_id => maps:get(session_id, Opts, gen_session_id())
     }.
+
+%% Client layer stack, outermost first: retry (always), then optional
+%% concurrency and circuit-breaker limits. A caller-supplied stack
+%% replaces the defaults entirely.
+stack(#{stack := Stack}) ->
+    Stack;
+stack(Opts) ->
+    Retry = retry_layer(maps:get(retry, Opts, #{})),
+    [Retry] ++ concurrency_layer(Opts) ++ circuit_layer(Opts).
+
+-spec retry_layer(map()) -> term().
+retry_layer(Overrides) ->
+    livery_client:retry(maps:merge(?RETRY_DEFAULTS, Overrides)).
+
+concurrency_layer(#{concurrency := Limit}) when is_integer(Limit) ->
+    [livery_client:concurrency(Limit)];
+concurrency_layer(_) ->
+    [].
+
+circuit_layer(#{circuit_breaker := Cb}) when is_map(Cb) ->
+    [livery_client:circuit_breaker(Cb)];
+circuit_layer(_) ->
+    [].
 
 %%--------------------------------------------------------------------
 %% Raw calls
@@ -100,13 +139,12 @@ reconstruction_error({ok, #{status := 404}}) -> {error, not_found};
 reconstruction_error({ok, #{status := 416}}) -> {error, range_not_satisfiable};
 reconstruction_error(Other) -> error_of(Other).
 
-%% Global dedup query: 404 is an expected miss, 429 is fatal (no retry).
+%% Global dedup query: 404 is an expected miss. A degraded query (any
+%% other failure) is the caller's to treat as "no dedup", not fatal.
 -spec query_chunk(client(), binary(), xet_hash:hash()) ->
     {ok, xet_shard:shard()} | not_found | {error, term()}.
 query_chunk(Client, Ns, ChunkHash) ->
-    Path = chunk_path(Client, Ns, ChunkHash),
-    Retry = maps:merge(maps:get(retry, Client), #{no_retry_statuses => [429]}),
-    case request(Client#{retry := Retry}, get, Path, #{}) of
+    case request(Client, get, chunk_path(Client, Ns, ChunkHash), #{}) of
         {ok, #{status := 200} = Resp} -> xet_shard:decode(body_of(Resp));
         {ok, #{status := 404}} -> not_found;
         Other -> error_of(Other)
@@ -130,14 +168,11 @@ exists(Client, Path) ->
 reconstruction(Client, Version, HashStr, Headers) ->
     request(Client, get, reconstruction_path(Client, Version, HashStr), #{headers => Headers}).
 
-request(#{http := Http, retry := Retry} = Client, Method, Path, Opts) ->
+%% Retry/circuit/concurrency happen inside the client's layer stack.
+request(#{http := Http} = Client, Method, Path, Opts) ->
     case auth_headers(Client) of
         {ok, Auth} ->
-            ReqOpts = build_opts(Opts, Auth),
-            xet_client_retry:run(
-                fun() -> livery_client:request(Http, Method, Path, ReqOpts) end,
-                Retry
-            );
+            livery_client:request(Http, Method, Path, build_opts(Opts, Auth));
         {error, _} = Error ->
             Error
     end.
@@ -164,10 +199,8 @@ content_type_header(_) -> [].
 
 octet_stream() -> <<"application/octet-stream">>.
 
-%% livery_client bodies arrive wrapped; unwrap to a binary.
-body_of(#{body := {full, Bin}}) -> Bin;
-body_of(#{body := Bin}) when is_binary(Bin) -> Bin;
-body_of(#{body := IoData}) -> iolist_to_binary(IoData).
+%% Non-streaming livery_client responses carry the body as {full, Bin}.
+body_of(#{body := {full, Bin}}) -> Bin.
 
 decode_bool(Body) ->
     #{<<"was_inserted">> := Inserted} = json:decode(Body),

@@ -171,46 +171,39 @@ token_refresh(Config) ->
     %% The cached token is reused: the refresh fun runs once, not twice.
     ?assertEqual(1, counters:get(Counter, 1)).
 
+%% Retry lives in livery_client's layer stack, not a bespoke wrapper.
+%% Drive livery_client_retry with the client's configured layer opts to
+%% confirm the taxonomy we asked for (5xx/408/429 + transport errors,
+%% content-addressed POSTs replayable) actually holds.
 retry_taxonomy(_Config) ->
-    Opts = #{base_delay => 0, max_attempts => 3},
-    %% 503 is transient: retried up to the cap, then returned.
-    Count503 = counters:new(1, []),
-    R1 = xet_client_retry:run(
-        fun() ->
-            counters:add(Count503, 1, 1),
-            {ok, #{status => 503, body => <<>>}}
-        end,
-        Opts
-    ),
+    {livery_client_retry, Opts0} = xet_client:retry_layer(#{}),
+    Opts = Opts0#{backoff => {1, 1.0}},
+    %% 503 retried up to max, then returned.
+    C503 = counters:new(1, []),
+    R1 = drive_retry(Opts, C503, {ok, #{status => 503, headers => [], body => <<>>}}),
     ?assertMatch({ok, #{status := 503}}, R1),
-    ?assertEqual(3, counters:get(Count503, 1)),
+    ?assertEqual(maps:get(max, Opts) + 1, counters:get(C503, 1)),
+    %% 429 is retried per our status set.
+    C429 = counters:new(1, []),
+    _ = drive_retry(Opts, C429, {ok, #{status => 429, headers => [], body => <<>>}}),
+    ?assertEqual(maps:get(max, Opts) + 1, counters:get(C429, 1)),
     %% 400 is fatal: one attempt.
-    Count400 = counters:new(1, []),
-    _ = xet_client_retry:run(
-        fun() ->
-            counters:add(Count400, 1, 1),
-            {ok, #{status => 400, body => <<>>}}
-        end,
-        Opts
-    ),
-    ?assertEqual(1, counters:get(Count400, 1)),
-    %% 429 with no_retry override is fatal.
-    Count429 = counters:new(1, []),
-    _ = xet_client_retry:run(
-        fun() ->
-            counters:add(Count429, 1, 1),
-            {ok, #{status => 429, body => <<>>}}
-        end,
-        Opts#{no_retry_statuses => [429]}
-    ),
-    ?assertEqual(1, counters:get(Count429, 1)),
-    %% Connection errors are transient.
-    CountErr = counters:new(1, []),
-    _ = xet_client_retry:run(
-        fun() ->
-            counters:add(CountErr, 1, 1),
-            {error, timeout}
-        end,
-        Opts
-    ),
-    ?assertEqual(3, counters:get(CountErr, 1)).
+    C400 = counters:new(1, []),
+    _ = drive_retry(Opts, C400, {ok, #{status => 400, headers => [], body => <<>>}}),
+    ?assertEqual(1, counters:get(C400, 1)),
+    %% Transport errors (including the pool's bad_request) are retried.
+    CErr = counters:new(1, []),
+    _ = drive_retry(Opts, CErr, {error, bad_request}),
+    ?assertEqual(maps:get(max, Opts) + 1, counters:get(CErr, 1)),
+    %% Our status set and idempotency override are what we intend.
+    ?assert(lists:member(429, maps:get(statuses, Opts0))),
+    ?assert(lists:member(500, maps:get(statuses, Opts0))),
+    ?assert(maps:get(retry_non_idempotent, Opts0)).
+
+drive_retry(Opts, Counter, Result) ->
+    Req = #{method => <<"post">>, body => {full, <<>>}},
+    Next = fun(_R) ->
+        counters:add(Counter, 1, 1),
+        Result
+    end,
+    livery_client_retry:call(Req, Next, Opts).
