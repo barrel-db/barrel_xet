@@ -77,8 +77,15 @@ file_block(#{file_hash := Hash, terms := Terms} = File) ->
         <<Hash:32/binary, Flags:32/little, N:32/little, 0:64>>,
         [term_entry(T) || T <- Terms],
         [<<V:32/binary, 0:128>> || Verification =/= undefined, V <- Verification],
-        [<<S:32/binary, 0:128>> || Sha256 =/= undefined, S <- [Sha256]]
+        [<<(swap_sha(S)):32/binary, 0:128>> || Sha256 =/= undefined, S <- [Sha256]]
     ].
+
+%% The metadata-ext SHA-256 is stored in the XET byte-swapped layout
+%% (each 8-byte segment reversed), unlike the raw file/chunk hashes.
+%% This matches xet-core and the Hugging Face reference shards; the
+%% draft's Python reference stores it raw. Swap is its own inverse.
+swap_sha(Sha) ->
+    <<<<S:64/big>> || <<S:64/little>> <= Sha>>.
 
 ver_flag(undefined) -> 0;
 ver_flag(_) -> ?FILE_FLAG_WITH_VERIFICATION.
@@ -265,7 +272,7 @@ take_hash48(_, _, _) ->
 take_ext(Bin, false) ->
     {ok, undefined, Bin};
 take_ext(<<Sha:32/binary, 0:128, Rest/binary>>, true) ->
-    {ok, Sha, Rest};
+    {ok, swap_sha(Sha), Rest};
 take_ext(_, true) ->
     {error, bad_metadata_ext}.
 
