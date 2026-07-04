@@ -55,7 +55,7 @@ standalone CAS server.
 ## Phase 7: Conformance + hardening
 
 - [x] T7.1 Reference fixture interop suite
-- [ ] T7.2 Cross-implementation e2e (Python reference client) + restart durability
+- [x] T7.2 Cross-implementation e2e (Python reference client) + restart durability
 - [ ] T7.3 Load smoke + observability
 - [ ] T7.4 Server release packaging (relx)
 - [ ] T7.5 Docs + v0.1.0 tag + CI wiring
