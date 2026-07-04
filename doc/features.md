@@ -30,7 +30,7 @@ standalone CAS server.
 
 ## Phase 4: Server storage
 
-- [ ] T4.1 xet_metadata behaviour + rocksdb backend (column families)
+- [x] T4.1 xet_metadata behaviour + rocksdb backend (column families)
 - [ ] T4.2 xet_blob_store behaviour + filesystem backend
 - [ ] T4.3 S3 backend on livery_s3 + Garage CT suite
 
