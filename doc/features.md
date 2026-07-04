@@ -49,7 +49,7 @@ standalone CAS server.
 - [x] T6.2 Upload pipeline
 - [x] T6.3 Download pipeline
 - [x] T6.4 Shard cache
-- [ ] T6.5 Chunk cache
+- [x] T6.5 Chunk cache
 - [ ] T6.6 CLI escript
 
 ## Phase 7: Conformance + hardening

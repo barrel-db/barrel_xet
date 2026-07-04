@@ -50,8 +50,9 @@ assemble(Client, FileHash, Recon, Range) ->
     Terms = terms(Recon),
     Fetches = fetches(Recon),
     Concurrency = maps:get(concurrency, Client, ?FETCH_CONCURRENCY),
+    Cache = maps:get(chunk_cache, Client, undefined),
     maybe
-        {ok, ChunkMap} ?= fetch_all(Fetches, Concurrency),
+        {ok, ChunkMap} ?= fetch_all(Fetches, Concurrency, Cache),
         {ok, TermChunks} ?= extract_terms(Terms, ChunkMap),
         ok ?= verify_file_hash(FileHash, Range, Offset, TermChunks),
         {ok, output(Range, TermChunks, Offset)}
@@ -102,11 +103,23 @@ range_of(#{<<"start">> := S, <<"end">> := E}) -> {S, E}.
 %% Fetching
 %%--------------------------------------------------------------------
 
-fetch_all(Fetches, Concurrency) ->
-    Results = xet_par:map(fun fetch_one/1, Fetches, Concurrency),
+fetch_all(Fetches, Concurrency, Cache) ->
+    Results = xet_par:map(fun(Entry) -> fetch_one(Entry, Cache) end, Fetches, Concurrency),
     combine(Results, #{}).
 
-fetch_one({CasStr, ChunkStart, ChunkEnd, Url, ByteStart, ByteEnd}) ->
+%% A fully-cached range skips the network entirely; otherwise fetch, then
+%% populate the cache with the extracted chunks.
+fetch_one({CasStr, ChunkStart, ChunkEnd, _Url, _BS, _BE} = Entry, Cache) ->
+    case cache_get(Cache, CasStr, ChunkStart, ChunkEnd) of
+        {ok, Chunks} ->
+            {ok, {CasStr, ChunkStart, Chunks}};
+        miss ->
+            Result = fetch_network(Entry),
+            cache_put(Cache, Result),
+            Result
+    end.
+
+fetch_network({CasStr, ChunkStart, ChunkEnd, Url, ByteStart, ByteEnd}) ->
     RangeHeader = iolist_to_binary([
         "bytes=", integer_to_binary(ByteStart), "-", integer_to_binary(ByteEnd)
     ]),
@@ -126,6 +139,18 @@ fetch_one({CasStr, ChunkStart, ChunkEnd, Url, ByteStart, ByteEnd}) ->
         {error, _} = Error ->
             Error
     end.
+
+cache_get(undefined, _CasStr, _Start, _End) ->
+    miss;
+cache_get(Cache, CasStr, Start, End) ->
+    xet_chunk_cache:get_range(Cache, CasStr, Start, End).
+
+cache_put(undefined, _Result) ->
+    ok;
+cache_put(Cache, {ok, {CasStr, Start, Chunks}}) ->
+    xet_chunk_cache:put_range(Cache, CasStr, Start, Chunks);
+cache_put(_Cache, _Other) ->
+    ok.
 
 tagged(CasStr, ChunkStart, {ok, Chunks}) -> {ok, {CasStr, ChunkStart, Chunks}};
 tagged(_CasStr, _ChunkStart, {error, _} = Error) -> Error.

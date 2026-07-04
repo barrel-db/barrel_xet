@@ -49,12 +49,17 @@
 new(Opts) ->
     Endpoint = maps:get(endpoint, Opts),
     Http = livery_client:new(#{base_url => Endpoint, stack => stack(Opts)}),
-    #{
+    Base = #{
         http => Http,
         token => xet_client_token:new(maps:get(token, Opts, <<>>)),
         dialect => maps:get(dialect, Opts, draft),
         session_id => maps:get(session_id, Opts, gen_session_id())
-    }.
+    },
+    %% The download pipeline reads chunk_cache from the client map.
+    case Opts of
+        #{chunk_cache := Cache} -> Base#{chunk_cache => Cache};
+        _ -> Base
+    end.
 
 %% Client layer stack, outermost first: retry (always), then optional
 %% concurrency and circuit-breaker limits. A caller-supplied stack
