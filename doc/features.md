@@ -26,7 +26,7 @@ standalone CAS server.
 ## Phase 3: Engine (pure)
 
 - [x] T3.1 Upload planner: dedup, defrag prevention, xorb packing, terms
-- [ ] T3.2 Reconstruction planner: byte range to terms, V1/V2 shapes
+- [x] T3.2 Reconstruction planner: byte range to terms, V1/V2 shapes
 
 ## Phase 4: Server storage
 
