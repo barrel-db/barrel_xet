@@ -8,7 +8,8 @@
 %% same-hash writes interchangeable.
 -module(xet_blob_store).
 
--export([open/2, close/1, put/4, get_range/5, size/3, exists/3, delete/3]).
+-export([open/2, close/1, put/4, get_range/5, size/3, exists/3, delete/3, presign/4]).
+-export([valid_namespace/1]).
 
 -type handle() :: {module(), term()}.
 -type body() :: iodata() | {stream, producer()}.
@@ -23,6 +24,10 @@
 -callback size(term(), binary(), xet_hash:hash()) -> {ok, non_neg_integer()} | {error, term()}.
 -callback exists(term(), binary(), xet_hash:hash()) -> boolean().
 -callback delete(term(), binary(), xet_hash:hash()) -> ok | {error, term()}.
+-callback presign(term(), binary(), xet_hash:hash(), pos_integer()) ->
+    {ok, binary()} | {error, term()}.
+
+-optional_callbacks([presign/4]).
 
 -spec open(module(), map()) -> {ok, handle()} | {error, term()}.
 open(Mod, Opts) ->
@@ -49,3 +54,32 @@ exists({Mod, State}, Ns, Hash) -> Mod:exists(State, Ns, Hash).
 
 -spec delete(handle(), binary(), xet_hash:hash()) -> ok | {error, term()}.
 delete({Mod, State}, Ns, Hash) -> Mod:delete(State, Ns, Hash).
+
+%% Presigned fetch URL when the backend supports it (S3); FS-backed
+%% deployments serve ranges themselves through the signed data endpoint.
+-spec presign(handle(), binary(), xet_hash:hash(), pos_integer()) ->
+    {ok, binary()} | {error, not_supported | term()}.
+presign({Mod, State}, Ns, Hash, ExpiresSecs) ->
+    case erlang:function_exported(Mod, presign, 4) of
+        true -> Mod:presign(State, Ns, Hash, ExpiresSecs);
+        false -> {error, not_supported}
+    end.
+
+%% Namespaces are single path components from a small safe alphabet,
+%% shared by every backend.
+-spec valid_namespace(term()) -> boolean().
+valid_namespace(Ns) when is_binary(Ns), byte_size(Ns) >= 1, byte_size(Ns) =< 64 ->
+    ns_chars(Ns);
+valid_namespace(_) ->
+    false.
+
+ns_chars(<<C, Rest/binary>>) when C >= $a, C =< $z ->
+    ns_chars(Rest);
+ns_chars(<<C, Rest/binary>>) when C >= $0, C =< $9 ->
+    ns_chars(Rest);
+ns_chars(<<C, Rest/binary>>) when C =:= $-; C =:= $_ ->
+    ns_chars(Rest);
+ns_chars(<<>>) ->
+    true;
+ns_chars(_) ->
+    false.

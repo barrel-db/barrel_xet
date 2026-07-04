@@ -107,7 +107,7 @@ delete(State, Ns, Hash) ->
     end.
 
 blob_path(#{root := Root}, Ns, Hash) ->
-    case valid_ns(Ns) of
+    case xet_blob_store:valid_namespace(Ns) of
         true ->
             Hex = binary_to_list(xet_hash:to_string(Hash)),
             {ok,
@@ -118,23 +118,6 @@ blob_path(#{root := Root}, Ns, Hash) ->
         false ->
             {error, bad_namespace}
     end.
-
-%% Namespaces are single path components from a small safe alphabet.
-valid_ns(Ns) when is_binary(Ns), byte_size(Ns) >= 1, byte_size(Ns) =< 64 ->
-    ns_chars(Ns);
-valid_ns(_) ->
-    false.
-
-ns_chars(<<C, Rest/binary>>) when C >= $a, C =< $z ->
-    ns_chars(Rest);
-ns_chars(<<C, Rest/binary>>) when C >= $0, C =< $9 ->
-    ns_chars(Rest);
-ns_chars(<<C, Rest/binary>>) when C =:= $-; C =:= $_ ->
-    ns_chars(Rest);
-ns_chars(<<>>) ->
-    true;
-ns_chars(_) ->
-    false.
 
 sweep_tmp(Root) ->
     filelib:fold_files(
