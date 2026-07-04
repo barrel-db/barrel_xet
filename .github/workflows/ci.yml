@@ -96,7 +96,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
       # The vendored Python reference client needs 3.14+ (deferred
       # annotation evaluation); on 3.12/3.13 it raises at import time.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
       - name: Python reference client (cross-impl e2e)
