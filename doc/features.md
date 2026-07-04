@@ -45,7 +45,7 @@ standalone CAS server.
 
 ## Phase 6: Client
 
-- [ ] T6.1 Client core: auth refresh, retry wrapper, raw calls
+- [x] T6.1 Client core: auth refresh, retry wrapper, raw calls
 - [ ] T6.2 Upload pipeline
 - [ ] T6.3 Download pipeline
 - [ ] T6.4 Shard cache
