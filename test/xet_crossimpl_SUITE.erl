@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Cross-implementation e2e and durability.
 %%
 %% The python cases drive the draft's Python reference client against our

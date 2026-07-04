@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Shard format constants (spec Section 9).
 
 -define(SHARD_HEADER_SIZE, 48).

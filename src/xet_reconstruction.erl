@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Reconstruction planner (spec Sections 8 and 12, API Appendix A.3):
 %% given a file's terms and per-xorb chunk layout, produce the term
 %% subset for an optional byte range, the offset to skip in the first

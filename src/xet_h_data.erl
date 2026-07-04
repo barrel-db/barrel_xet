@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% FS-backed data endpoint: GET /v1/xorbs/{ns}/{hash}/data?exp=..&sig=..
 %%
 %% Authentication is the URL signature (spec 13.7.1 query-signed

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 -module(prop_xet_bg4).
 
 -include_lib("proper/include/proper.hrl").

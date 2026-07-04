@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 -module(xet_hash_domain_tests).
 
 -include_lib("eunit/include/eunit.hrl").

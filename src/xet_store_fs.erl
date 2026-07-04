@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Filesystem blob store: <root>/<ns>/<h0h1>/<h2h3>/<hex>.xorb.
 %%
 %% Writes are crash-safe: bytes go to a unique .tmp sibling, get fsynced,

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Shard registration (spec Appendix A.6): POST /v1/shards (and bare
 %% /shards, which xet-core uses).
 %%

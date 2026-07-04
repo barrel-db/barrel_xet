@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Benoit Chesneau */
 /* BLAKE3 keyed hashing on top of the vendored upstream implementation. */
 #include <string.h>
 

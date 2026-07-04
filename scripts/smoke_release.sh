@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Benoit Chesneau
 # Cold-start smoke: build the release, boot it on an ephemeral data dir
 # and port, exercise health + an upload/download roundtrip through the
 # HTTP API, then stop it gracefully.

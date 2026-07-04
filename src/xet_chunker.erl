@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Streaming content-defined chunker (spec Section 5), NIF-backed.
 %%
 %% Feed arbitrary buffers with update/2 and close with finalize/1; the

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% XET CAS client: raw endpoint calls over livery_client. Retry,
 %% circuit breaking, and concurrency limiting are livery_client layers
 %% (built into the client's stack), so we reuse livery's Tower-style

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Load smoke and observability. Bounded concurrent uploads/downloads
 %% exercise the full stack; a NIF stress case checks the primitives stay
 %% correct under parallel dirty-scheduler load; an observability case

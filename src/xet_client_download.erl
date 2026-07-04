@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Download pipeline (spec Section 12): query reconstruction, fetch the
 %% needed xorb byte ranges in parallel, extract chunks, reassemble.
 %%

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Shared request-body spooling for upload endpoints: bytes accumulate
 %% in memory up to a threshold, then spill to a spool file; a hard size
 %% cap aborts mid-stream. Nothing here interprets the bytes.

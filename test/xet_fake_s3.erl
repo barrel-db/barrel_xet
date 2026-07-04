@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Minimal in-memory S3 lookalike served by livery, for offline testing
 %% of xet_store_s3 through real HTTP: PUT/GET(range)/HEAD/DELETE on
 %% path-style /bucket/key URLs. Signatures are accepted unverified.

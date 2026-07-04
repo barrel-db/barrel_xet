@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Blob store behaviour: where serialized xorbs live. Backends:
 %% xet_store_fs (local disk) and xet_store_s3 (livery_s3). The server
 %% holds a {Module, State} handle and goes through the wrappers.

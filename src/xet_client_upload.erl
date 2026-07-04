@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Upload pipeline (spec Section 11): chunk files, plan xorbs and dedup,
 %% upload new xorbs, then register a shard. Ties xet_chunker,
 %% xet_upload_plan, xet_xorb, and xet_shard to the client's raw calls.

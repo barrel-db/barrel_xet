@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Owns the server's storage handles: opens the rocksdb metadata store
 %% (with lock-retry, since a brutally killed predecessor releases the
 %% LOCK file only when its NIF resource is destructed) and the blob

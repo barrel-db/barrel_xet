@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Benoit Chesneau */
 /* Gearhash lookup table (spec Appendix B), generated from
  * doc/spec/draft-denis-xet-05.txt. 256 constants, do not edit. */
 #ifndef XET_GEAR_TABLE_H

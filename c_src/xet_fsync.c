@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Benoit Chesneau */
 /* Directory fsync: after renaming a blob into place, the parent
  * directory entry must be durable before metadata acknowledges the
  * xorb. Erlang's file module cannot fsync a directory.

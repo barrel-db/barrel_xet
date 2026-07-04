@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Owns the livery service (H1 on TCP, H2 on TLS, H3 on QUIC, any
 %% subset) for one server instance and publishes the bound ports. All
 %% protocols share the same router and middleware stack; when H3 is

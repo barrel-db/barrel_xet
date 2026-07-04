@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Reference-fixture conformance gate: pins our implementation against the
 %% Hugging Face xet-team golden files. Small fixtures are vendored and
 %% always run; large-fixture cases skip without `make fixtures`.

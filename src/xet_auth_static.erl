@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Static bearer tokens: #{tokens => #{TokenBinary => read | write}}.
 %% write implies read. Comparison is constant-time over token digests.
 -module(xet_auth_static).

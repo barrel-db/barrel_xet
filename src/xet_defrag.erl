@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Fragmentation-prevention estimator, ported from xet-core's
 %% DefragPrevention: a rolling window over the chunk counts of the last N
 %% reconstruction ranges. Dedup gets skipped while the mean chunks/range

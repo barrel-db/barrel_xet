@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Local chunk cache (spec 13.2): decompressed chunks on disk, keyed by
 %% (xorb hash string, chunk index), so repeat downloads skip the network
 %% fetch and decompression. Content is immutable, so a hit never needs

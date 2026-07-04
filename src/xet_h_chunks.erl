@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Global dedup endpoint (spec A.4): GET /v1/chunks/{ns}/{chunk_hash}.
 %% A hit returns a stored-form shard whose CAS chunk hashes are keyed
 %% with the current chunk_hash_key; a miss is 404. Responses are

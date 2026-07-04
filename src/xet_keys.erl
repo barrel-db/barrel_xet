@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Dedup key ring owner: keeps the chunk_hash_key used to protect global
 %% dedup responses (spec 10.3.3), rotates it on schedule, persists the
 %% ring in metadata so restarts keep the current key, and publishes it

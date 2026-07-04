@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 -module(xet_chunk_cache_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").

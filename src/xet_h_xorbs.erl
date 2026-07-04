@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Xorb endpoints (spec Appendix A.5):
 %%   POST /v1/xorbs/{ns}/{hash}: spool the body (memory below a
 %%   threshold, disk above), validate the WHOLE xorb (footered or bare

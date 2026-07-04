@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Native primitives for the XET protocol (see c_src/).
 %%
 %% Inputs above ?DIRTY_THRESHOLD bytes run on dirty CPU schedulers so

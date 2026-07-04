@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Pure Erlang reference chunker, written straight from the Section 5.3
 %% pseudocode. Test-only: the production path is the NIF scanner in
 %% xet_chunker; equivalence between the two is property-tested.

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Local shard cache (spec 10.2, 13.4): keeps shards on disk and an
 %% in-memory chunk index so a later session can deduplicate against
 %% earlier uploads without any network query.

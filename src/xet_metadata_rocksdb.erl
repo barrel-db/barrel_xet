@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% rocksdb metadata backend. One database, four column families:
 %%   files:  FileHash  -> file_meta()
 %%   xorbs:  XorbHash  -> xorb_meta()

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Stored-shard tail (spec Section 9.6): the three lookup tables sorted by
 %% truncated hash, then the 200-byte footer.
 -module(xet_shard_footer).

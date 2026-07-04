@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Range header parsing. livery only emits 206/416 for file bodies; the
 %% parsing side is ours. Reconstruction requests accept the strict
 %% bytes=A-B form the OpenAPI declares; the data endpoint additionally

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Metadata store behaviour: files, xorb layouts, the global dedup chunk
 %% index, and the dedup key ring. The server holds a {Module, State}
 %% handle and goes through the wrappers here; xet_metadata_rocksdb is the

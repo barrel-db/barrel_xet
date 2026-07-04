@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Upload planner (spec Sections 10 and 11): turns per-file chunk streams
 %% into xorbs to upload plus file reconstruction metadata, deduplicating
 %% at chunk level along the way.

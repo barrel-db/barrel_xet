@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% XET hashing (spec Section 6): BLAKE3 keyed hashing with four domain
 %% separation keys, plus the string representation (Section 6.5).
 %%

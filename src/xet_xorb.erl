@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Xorb container codec (spec Section 7): serialize chunks with per-chunk
 %% compression, decode with the full set of 7.3.2 validation MUSTs.
 %%

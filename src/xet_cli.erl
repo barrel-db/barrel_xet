@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Command-line client. Built as the `xet` escript (see rebar.config).
 %%
 %%   xet up <file>                upload a file, print its file hash

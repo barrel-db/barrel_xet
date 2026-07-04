@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Bearer token provider. A static token is returned as-is; a refresh
 %% provider caches the token and refreshes it when within 30 s of expiry
 %% (the xet-core REFRESH_BUFFER_SEC), honoring the refresh-route contract

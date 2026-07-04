@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Standalone CAS server instances. start/1 runs an instance under the
 %% barrel_xet application supervisor so it outlives the caller; each
 %% instance is a rest_for_one tree: storage handles first

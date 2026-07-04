@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Benoit Chesneau */
 /* xet_nif: NIF registration only. Feature code lives in one small C file
  * per feature (xet_blake3.c, ...), declared in xet_nif.h.
  *

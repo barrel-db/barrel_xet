@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Benoit Chesneau */
 /* Gearhash boundary scanner (spec Section 5).
  *
  * Scans one buffer, carrying {rolling hash, current chunk length} across

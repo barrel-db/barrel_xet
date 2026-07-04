@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 {application, barrel_xet, [
     {description, "XET content-addressable storage protocol: client and CAS server"},
     {vsn, "0.1.0"},

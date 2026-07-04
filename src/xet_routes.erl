@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Router and middleware stack for the CAS server. Endpoint handlers
 %% register here as their tasks land; the skeleton serves /healthz and a
 %% JSON 404, with bearer auth in front of everything under /api and /v1.

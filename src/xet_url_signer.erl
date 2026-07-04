@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Query signing for the FS data endpoint (spec 13.7.1, query-signed
 %% URLs): sig = HMAC-SHA256(secret, ns \n hash \n exp), base64url. A bad
 %% or expired signature maps to 403, the status that makes clients

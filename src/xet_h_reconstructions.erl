@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Reconstruction endpoints (spec A.3 and the V2 evolution):
 %%   GET /v1/reconstructions/{file_hash}: terms + fetch_info
 %%   GET /v2/reconstructions/{file_hash}: terms + per-xorb multi-ranges

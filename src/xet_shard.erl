@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Shard codec (spec Section 9): binary metadata describing file
 %% reconstructions (file info section) and xorb contents (CAS info
 %% section).

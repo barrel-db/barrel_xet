@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Benoit Chesneau
 """Cross-implementation driver: run the draft's Python reference client
 against a barrel_xet CAS server.
 

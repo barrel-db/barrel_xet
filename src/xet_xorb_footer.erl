@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% CasObjectInfo footer codec (spec Section 7.5).
 %%
 %% Layout: main header ("XETBLOB", version 1, xorb hash), hash section

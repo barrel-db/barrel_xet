@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Benoit Chesneau */
 /* LZ4 Frame compression (spec compression type 1) on top of the vendored
  * upstream library. Whole chunks are compressed as one complete frame.
  *

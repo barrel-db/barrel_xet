@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% barrel_xet application callback.
 %%
 %% barrel_xet is a library application: starting it brings up an empty

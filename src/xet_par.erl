@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Bounded-concurrency parallel map. Results come back in input order.
 %% A worker that raises yields {error, {worker_crash, Reason}} for its
 %% element; the map itself never crashes. Runs in batches of at most

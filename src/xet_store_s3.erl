@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% S3 blob store on livery_s3: key layout <ns>/<hex>. Works against AWS
 %% S3 and compatibles (Garage, MinIO, Ceph). Also provides presigned GET
 %% URLs for reconstruction fetch_info.

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Byte grouping 4 (spec Section 7.4.3) and the BG4 compression predictor.
 %%
 %% group/1 reorders bytes by position within 4-byte groups; ungroup/2

@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Authentication behaviour (spec Appendix A.1, OpenAPI scopes): a
 %% bearer token is checked against a required scope. read covers the
 %% GET/HEAD surface, write the mutating one.

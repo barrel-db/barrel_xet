@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Benoit Chesneau */
 /* Shared declarations for the xet_nif feature files.
  *
  * One C file per feature: each file implements its NIF handlers and

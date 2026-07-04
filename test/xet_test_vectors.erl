@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Golden test vectors for the XET protocol test suites.
 %%
 %% Sources:

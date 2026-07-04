@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Benoit Chesneau
 # Fetch the large XET reference files (too big to vendor in git) into
 # test/fixtures/large/. Test groups that need them skip when absent.
 # Source: https://huggingface.co/datasets/xet-team/xet-spec-reference-files

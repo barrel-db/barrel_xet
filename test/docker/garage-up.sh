@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Benoit Chesneau
 # Start a single-node Garage in Docker for the S3 integration suite.
 # Adapted from livery_s3's test setup; uses its own container name and
 # host port so both projects' suites can coexist.

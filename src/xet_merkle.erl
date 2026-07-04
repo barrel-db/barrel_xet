@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Aggregated hash tree with variable fan-out (spec Section 6.2.2).
 %%
 %% Not a binary Merkle tree: a list of {hash, size} pairs is collapsed

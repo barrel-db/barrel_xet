@@ -1,3 +1,5 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
 %% Global deduplication helpers (spec Sections 9.6.2 and 10.3).
 %%
 %% Servers answer chunk queries with a stored-form shard whose CAS chunk
