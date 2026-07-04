@@ -19,7 +19,7 @@ standalone CAS server.
 
 ## Phase 2: Formats
 
-- [ ] T2.1 Xorb codec: encode with auto compression, strict decode, extraction
+- [x] T2.1 Xorb codec: encode with auto compression, strict decode, extraction
 - [ ] T2.2 Shard codec: upload + stored forms, lookup tables, footer
 - [ ] T2.3 Dedup helpers: eligibility, keyed hashes, dedupe-shard build/match
 
