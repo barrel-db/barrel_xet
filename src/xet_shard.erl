@@ -66,7 +66,8 @@ header(FooterSize) ->
 file_section(Files) ->
     [[file_block(F) || F <- Files], ?SHARD_BOOKEND].
 
-file_block(#{file_hash := Hash, terms := Terms} = File) when Terms =/= [] ->
+%% Terms may be empty: an empty file has zero data-sequence entries.
+file_block(#{file_hash := Hash, terms := Terms} = File) ->
     Verification = maps:get(verification, File, undefined),
     Sha256 = maps:get(sha256, File, undefined),
     Flags = ver_flag(Verification) bor ext_flag(Sha256),
@@ -218,7 +219,7 @@ file_blocks(<<Bookend:48/binary, Rest/binary>>, Acc) when Bookend =:= ?SHARD_BOO
     {ok, lists:reverse(Acc), Rest};
 file_blocks(
     <<Hash:32/binary, Flags:32/little, N:32/little, 0:64, Rest/binary>>, Acc
-) when N >= 1 ->
+) when N >= 0 ->
     WithVer = Flags band ?FILE_FLAG_WITH_VERIFICATION =/= 0,
     WithExt = Flags band ?FILE_FLAG_WITH_METADATA_EXT =/= 0,
     case Flags band (bnot (?FILE_FLAG_WITH_VERIFICATION bor ?FILE_FLAG_WITH_METADATA_EXT)) of
