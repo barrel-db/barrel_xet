@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  OTP: '29'
+  REBAR3: '3.25.0'
+
+jobs:
+  format:
+    name: erlfmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          rebar3-version: '3.25.0'
+      - run: rebar3 fmt --check
+
+  static:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [lint, xref, dialyzer]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          rebar3-version: '3.25.0'
+      - name: System deps (NIFs: instrument, rocksdb, blake3/lz4)
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+      - uses: actions/cache@v5
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
+      - run: rebar3 ${{ matrix.check }}
+
+  test:
+    name: eunit + proper + ct
+    needs: [format, static]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          rebar3-version: '3.25.0'
+      - name: System deps (NIFs: instrument, rocksdb, blake3/lz4)
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+      - name: Python reference client (cross-impl e2e)
+        run: |
+          python3 -m pip install --quiet blake3 lz4 requests || true
+      - uses: actions/cache@v5
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
+      - run: rebar3 compile
+      - run: rebar3 eunit
+      - run: rebar3 as test proper
+      # Large-fixture and Garage groups self-skip; the python cross-impl
+      # cases run when the deps installed above are present.
+      - run: rebar3 ct
+
+  release:
+    name: release cold-start smoke
+    needs: [test]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          rebar3-version: '3.25.0'
+      - name: System deps
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential curl
+      - run: make smoke

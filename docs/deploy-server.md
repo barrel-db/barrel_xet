@@ -44,7 +44,7 @@ Notes:
 - Add `https => #{port, cert, key}` and/or `http3 => #{port, cert, key}`
   to serve HTTP/2 and HTTP/3 alongside HTTP/1.
 - For S3-backed storage, set `blob => {s3, #{bucket => ..., s3 => #{...}}}`
-  (see `doc/deploy-s3.md`).
+  (see `docs/deploy-s3.md`).
 
 ## Run
 

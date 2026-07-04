@@ -7,8 +7,8 @@ Instructions for AI coding agents working on this project.
 Erlang implementation of the XET content-addressable storage protocol
 (draft-denis-xet-05): client library plus a standalone CAS server. Requires
 Erlang/OTP 27+ (developed on 29), rebar3, and a C toolchain for the NIF.
-The vendored spec lives in `doc/spec/`; the task plan of record is
-`doc/features.md` (one checkbox per reviewed task).
+The vendored spec lives in `docs/spec/`; the task plan of record is
+`docs/features.md` (one checkbox per reviewed task).
 
 ## Required Checks
 
@@ -26,7 +26,7 @@ rebar3 xref                 # Cross-reference analysis must pass
 
 `make check` runs all of the above. Commits use a plain imperative subject,
 no generated/co-authored-by lines, and tick the matching box in
-`doc/features.md`.
+`docs/features.md`.
 
 ## Build & Development Commands
 
@@ -45,7 +45,7 @@ themselves when those are absent.
 ## Architecture
 
 Single flat OTP app `barrel_xet`, modules prefixed `xet_`. Layers land phase
-by phase (see `doc/features.md`):
+by phase (see `docs/features.md`):
 
 - Core (pure, no IO): `xet_hash`, `xet_merkle`, `xet_chunker`, `xet_bg4`,
   `xet_xorb`, `xet_shard`, `xet_dedup`, `xet_upload_plan`, `xet_reconstruction`

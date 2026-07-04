@@ -1,7 +1,7 @@
 %% Golden test vectors for the XET protocol test suites.
 %%
 %% Sources:
-%%   - draft-denis-xet-05 Appendix C (doc/spec/draft-denis-xet-05.txt)
+%%   - draft-denis-xet-05 Appendix C (docs/spec/draft-denis-xet-05.txt)
 %%   - zig-xet cross-implementation vectors (splitmix64 chunk boundaries,
 %%     merkle tree roots, byte-grouping), reproducible in any language
 %%   - the vendored reference fixtures under test/fixtures/

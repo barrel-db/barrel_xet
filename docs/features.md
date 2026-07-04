@@ -21,7 +21,7 @@ standalone CAS server.
 
 - [x] T2.1 Xorb codec: encode with auto compression, strict decode, extraction
 - [x] T2.2 Shard codec: upload + stored forms, lookup tables, footer
-- [ ] T2.3 Dedup helpers: eligibility, keyed hashes, dedupe-shard build/match
+- [x] T2.3 Dedup helpers: eligibility, keyed hashes, dedupe-shard build/match
 
 ## Phase 3: Engine (pure)
 
@@ -58,7 +58,7 @@ standalone CAS server.
 - [x] T7.2 Cross-implementation e2e (Python reference client) + restart durability
 - [x] T7.3 Load smoke + observability
 - [x] T7.4 Server release packaging (relx)
-- [ ] T7.5 Docs + v0.1.0 tag + CI wiring
+- [x] T7.5 Docs + v0.1.0 tag + CI wiring
 
 ## Deferred beyond 0.1
 

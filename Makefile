@@ -35,7 +35,7 @@ dialyzer:
 	$(REBAR) dialyzer
 
 cover:
-	$(REBAR) as test cover
+	$(REBAR) as test do eunit, ct, cover
 
 check: fmt-check compile xref lint eunit proper ct dialyzer
 
