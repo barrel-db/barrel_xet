@@ -6,13 +6,9 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  OTP: '29'
-  REBAR3: '3.25.0'
-
 jobs:
   format:
-    name: erlfmt
+    name: format
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -20,15 +16,11 @@ jobs:
         with:
           otp-version: '29'
           rebar3-version: '3.25.0'
-      - run: rebar3 fmt --check
+      - run: make fmt-check
 
-  static:
-    name: ${{ matrix.check }}
+  xref:
+    name: xref
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        check: [lint, xref, dialyzer]
     steps:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
@@ -43,11 +35,56 @@ jobs:
             _build
             ~/.cache/rebar3
           key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
-      - run: rebar3 ${{ matrix.check }}
+      - run: make xref
+
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          rebar3-version: '3.25.0'
+      - name: System deps (NIFs: instrument, rocksdb, blake3/lz4)
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+      - uses: actions/cache@v5
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
+      - run: make lint
+
+  dialyzer:
+    name: dialyzer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          rebar3-version: '3.25.0'
+      - name: System deps (NIFs: instrument, rocksdb, blake3/lz4)
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+      - uses: actions/cache@v5
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
+      - name: Cache Dialyzer PLT
+        uses: actions/cache@v5
+        with:
+          path: |
+            _build/default/*_plt
+            ~/.cache/rebar3/rebar3_*_plt
+          key: plt-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
+          restore-keys: plt-otp-29-
+      - run: make dialyzer
 
   test:
-    name: eunit + proper + ct
-    needs: [format, static]
+    name: test (eunit + proper + ct)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -58,24 +95,20 @@ jobs:
       - name: System deps (NIFs: instrument, rocksdb, blake3/lz4)
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential
       - name: Python reference client (cross-impl e2e)
-        run: |
-          python3 -m pip install --quiet blake3 lz4 requests || true
+        run: python3 -m pip install --quiet blake3 lz4 requests || true
       - uses: actions/cache@v5
         with:
           path: |
             _build
             ~/.cache/rebar3
           key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
-      - run: rebar3 compile
-      - run: rebar3 eunit
-      - run: rebar3 as test proper
       # Large-fixture and Garage groups self-skip; the python cross-impl
       # cases run when the deps installed above are present.
-      - run: rebar3 ct
+      - run: make test
 
   release:
     name: release cold-start smoke
-    needs: [test]
+    needs: [format, xref, lint, dialyzer, test]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5

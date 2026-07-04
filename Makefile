@@ -1,6 +1,6 @@
 REBAR ?= rebar3
 
-.PHONY: all compile clean fmt fmt-check lint eunit ct proper xref dialyzer cover check fixtures
+.PHONY: all compile clean fmt fmt-check lint eunit ct proper xref dialyzer cover check test fixtures release smoke
 
 all: compile
 
@@ -37,7 +37,10 @@ dialyzer:
 cover:
 	$(REBAR) as test do eunit, ct, cover
 
-check: fmt-check compile xref lint eunit proper ct dialyzer
+# Unit + property + integration tests, distinct from the static checks.
+test: eunit proper ct
+
+check: fmt-check compile xref lint test dialyzer
 
 fixtures:
 	sh scripts/fetch_fixtures.sh
