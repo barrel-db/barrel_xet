@@ -14,7 +14,13 @@
     unauthorized/1,
     oversize_rejected/1,
     disk_spool_path/1,
-    corruption_property/1
+    corruption_property/1,
+    shard_roundtrip/1,
+    shard_missing_xorb/1,
+    shard_bad_verification/1,
+    shard_cas_mismatch/1,
+    shard_footered_tolerated/1,
+    shard_bare_alias/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
@@ -31,7 +37,13 @@ all() ->
         unauthorized,
         oversize_rejected,
         disk_spool_path,
-        corruption_property
+        corruption_property,
+        shard_roundtrip,
+        shard_missing_xorb,
+        shard_bad_verification,
+        shard_cas_mismatch,
+        shard_footered_tolerated,
+        shard_bare_alias
     ].
 
 init_per_suite(Config) ->
@@ -192,6 +204,123 @@ disk_spool_path(Config) ->
     after
         ok = xet_server:stop(xet_spool_server)
     end.
+
+%%--------------------------------------------------------------------
+%% Shards
+%%--------------------------------------------------------------------
+
+%% One uploaded xorb + a shard describing a file over it.
+shard_world(Seeds) ->
+    Enc = sample_xorb(Seeds),
+    {200, _} = post_xorb(base(), path_for(Enc), maps:get(bin, Enc)),
+    Entries = lists:zip(maps:get(chunk_hashes, Enc), maps:get(unpacked_sizes, Enc)),
+    N = length(Entries),
+    Terms = [
+        #{
+            cas_hash => maps:get(hash, Enc),
+            unpacked_len => lists:sum([S || {_, S} <- Entries]),
+            chunk_start => 0,
+            chunk_end => N
+        }
+    ],
+    FileHash = xet_hash:file_hash(Entries),
+    File = #{
+        file_hash => FileHash,
+        terms => Terms,
+        verification => [xet_hash:verification_hash([H || {H, _} <- Entries])],
+        sha256 => crypto:hash(sha256, <<"whatever">>)
+    },
+    CasBlock = #{
+        cas_hash => maps:get(hash, Enc),
+        bytes_on_disk => maps:get(bytes_on_disk, Enc),
+        chunks => [
+            #{hash => H, size => S, dedup_eligible => false}
+         || {H, S} <- Entries
+        ]
+    },
+    #{xorb => Enc, entries => Entries, file => File, cas => CasBlock, file_hash => FileHash}.
+
+post_shard(Base, Path, Body) ->
+    {ok, Status, _, RespBody} = hackney:request(
+        post,
+        Base ++ Path,
+        [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
+        Body,
+        [with_body]
+    ),
+    {Status, RespBody}.
+
+shard_roundtrip(_Config) ->
+    World = shard_world([40, 41, 42]),
+    Bin = xet_shard:encode_upload(#{files => [maps:get(file, World)], cas => [maps:get(cas, World)]}),
+    {200, Body} = post_shard(base(), "/api/v1/shards", Bin),
+    ?assertEqual(#{<<"result">> => 1}, json:decode(Body)),
+    {200, Body2} = post_shard(base(), "/api/v1/shards", Bin),
+    ?assertEqual(#{<<"result">> => 0}, json:decode(Body2)),
+    Env = xet_server:env(xet_api_server),
+    {ok, FileMeta} = xet_metadata:get_file(maps:get(metadata, Env), maps:get(file_hash, World)),
+    ?assertEqual(maps:get(terms, maps:get(file, World)), maps:get(terms, FileMeta)),
+    %% The first chunk of the file is always dedup-indexed.
+    [{FirstHash, _} | _] = maps:get(entries, World),
+    ?assertEqual(
+        {ok, {maps:get(hash, maps:get(xorb, World)), 0}},
+        xet_metadata:find_chunk(maps:get(metadata, Env), FirstHash)
+    ).
+
+shard_missing_xorb(_Config) ->
+    World = shard_world([43, 44]),
+    Ghost = maps:put(cas_hash, <<12345:256>>, hd(maps:get(terms, maps:get(file, World)))),
+    File = maps:put(terms, [Ghost], maps:get(file, World)),
+    Bin = xet_shard:encode_upload(#{files => [maps:remove(verification, File)], cas => []}),
+    {Status, Body} = post_shard(base(), "/api/v1/shards", Bin),
+    ?assertEqual(400, Status),
+    ?assertEqual(#{<<"error">> => <<"missing_xorb">>}, json:decode(Body)).
+
+shard_bad_verification(_Config) ->
+    World = shard_world([45, 46]),
+    File = maps:put(verification, [<<0:256>>], maps:get(file, World)),
+    Bin = xet_shard:encode_upload(#{files => [File], cas => []}),
+    {Status, Body} = post_shard(base(), "/api/v1/shards", Bin),
+    ?assertEqual(400, Status),
+    ?assertEqual(#{<<"error">> => <<"bad_verification">>}, json:decode(Body)),
+    Env = xet_server:env(xet_api_server),
+    ?assertEqual(
+        not_found,
+        xet_metadata:get_file(maps:get(metadata, Env), maps:get(file_hash, World))
+    ).
+
+shard_cas_mismatch(_Config) ->
+    World = shard_world([47, 48]),
+    Cas = maps:get(cas, World),
+    [C1 | Rest] = maps:get(chunks, Cas),
+    Tampered = Cas#{chunks := [C1#{size := maps:get(size, C1) + 1} | Rest]},
+    Bin = xet_shard:encode_upload(#{files => [], cas => [Tampered]}),
+    {Status, Body} = post_shard(base(), "/api/v1/shards", Bin),
+    ?assertEqual(400, Status),
+    %% Cumulative-offset validation in the codec rejects it even before
+    %% the layout comparison.
+    ?assert(
+        lists:member(json:decode(Body), [
+            #{<<"error">> => <<"cas_mismatch">>}, #{<<"error">> => <<"bad_chunk_entry">>}
+        ])
+    ).
+
+%% zig-xet style: footered payload on the upload endpoint is accepted,
+%% the tail ignored.
+shard_footered_tolerated(_Config) ->
+    World = shard_world([49, 50]),
+    Bin = xet_shard:encode_stored(
+        #{files => [maps:get(file, World)], cas => [maps:get(cas, World)]},
+        #{chunk_hash_key => xet_hash:zero_hash(), created_at => 1, key_expiry => 0}
+    ),
+    {200, Body} = post_shard(base(), "/api/v1/shards", Bin),
+    ?assertEqual(#{<<"result">> => 1}, json:decode(Body)).
+
+shard_bare_alias(_Config) ->
+    World = shard_world([51, 52]),
+    Bin = xet_shard:encode_upload(#{files => [maps:get(file, World)], cas => []}),
+    {200, Body} = post_shard(base(), "/shards", Bin),
+    ?assertEqual(#{<<"result">> => 1}, json:decode(Body)).
 
 %% Any single corrupted byte outside the ignorable nonce yields 400; a
 %% nonce flip is indistinguishable content and lands 200.

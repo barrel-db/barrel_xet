@@ -11,7 +11,8 @@
 compile(_Config) ->
     Api = [
         {<<"POST">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:upload/1},
-        {<<"HEAD">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:head/1}
+        {<<"HEAD">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:head/1},
+        {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1}
     ],
     Prefixed = [
         {Method, <<Prefix/binary, Pattern/binary>>, Handler}
@@ -19,7 +20,9 @@ compile(_Config) ->
         {Method, Pattern, Handler} <- Api
     ],
     livery_router:compile([
-        {<<"GET">>, <<"/healthz">>, fun health/1}
+        {<<"GET">>, <<"/healthz">>, fun health/1},
+        %% xet-core posts shards to the bare path.
+        {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1}
         | Prefixed
     ]).
 

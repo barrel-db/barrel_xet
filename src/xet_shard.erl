@@ -11,7 +11,7 @@
 %% Footer and lookup tables live in xet_shard_footer.
 -module(xet_shard).
 
--export([encode_upload/1, encode_stored/2, decode/1]).
+-export([encode_upload/1, encode_stored/2, decode/1, decode_prefix/1]).
 
 -include("xet_shard.hrl").
 
@@ -133,6 +133,30 @@ decode(
 decode(Bin) when byte_size(Bin) >= ?SHARD_HEADER_SIZE ->
     {error, bad_magic};
 decode(_) ->
+    {error, truncated}.
+
+%% Tolerant parse for the upload endpoint: header plus the two body
+%% sections, ignoring whatever follows (zig-xet posts a footered form
+%% with non-conformant lookup offsets; the body is still good). Returns
+%% the declared footer_size and the unparsed tail.
+-spec decode_prefix(binary()) ->
+    {ok, shard(), non_neg_integer(), binary()} | {error, term()}.
+decode_prefix(
+    <<_AppId:14/binary, 0, Magic:17/binary, Version:64/little, FooterSize:64/little, Rest/binary>>
+) when Magic =:= ?SHARD_MAGIC_SEQUENCE ->
+    case Version of
+        ?SHARD_VERSION ->
+            maybe
+                {ok, Files, AfterFiles} ?= file_blocks(Rest, []),
+                {ok, Cas, Tail} ?= cas_blocks(AfterFiles, []),
+                {ok, #{files => Files, cas => Cas, footer => undefined}, FooterSize, Tail}
+            end;
+        _ ->
+            {error, bad_version}
+    end;
+decode_prefix(Bin) when byte_size(Bin) >= ?SHARD_HEADER_SIZE ->
+    {error, bad_magic};
+decode_prefix(_) ->
     {error, truncated}.
 
 decode_stored(Rest) ->

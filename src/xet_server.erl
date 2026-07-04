@@ -77,6 +77,7 @@ normalize(Config) ->
         %% Serialized xorb cap: 64 MiB of chunk payload plus headers and
         %% footer headroom.
         max_xorb_bytes => 71303168,
+        max_shard_bytes => 67108864,
         spool_memory_max => 16777216,
         ratelimit => false,
         concurrency => false
