@@ -50,6 +50,7 @@ validate_and_commit(Env, Ns, Hash, Spooled) ->
 commit(#{metadata := Metadata, blob := Blob}, Ns, Hash, Bin, Decoded) ->
     Meta = #{
         hash => Hash,
+        ns => Ns,
         entries => lists:zip(
             maps:get(chunk_hashes, Decoded),
             [byte_size(C) || C <- maps:get(chunks, Decoded)]

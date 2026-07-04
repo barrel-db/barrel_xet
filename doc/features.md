@@ -39,7 +39,7 @@ standalone CAS server.
 - [x] T5.1 Service skeleton: routes, auth, middleware, healthz
 - [x] T5.2 Xorb upload (spool, validate, commit) + HEAD
 - [x] T5.3 Shard upload + registration
-- [ ] T5.4 Reconstruction endpoints v1 + v2 + HEAD files
+- [x] T5.4 Reconstruction endpoints v1 + v2 + HEAD files
 - [ ] T5.5 FS data endpoint + caching header conformance
 - [ ] T5.6 Chunks endpoint + HMAC key rotation
 

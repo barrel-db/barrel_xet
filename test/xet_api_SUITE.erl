@@ -20,7 +20,13 @@
     shard_bad_verification/1,
     shard_cas_mismatch/1,
     shard_footered_tolerated/1,
-    shard_bare_alias/1
+    shard_bare_alias/1,
+    reconstruction_full/1,
+    reconstruction_range/1,
+    reconstruction_errors/1,
+    reconstruction_empty_file/1,
+    reconstruction_v2_consistency/1,
+    head_file/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
@@ -43,7 +49,13 @@ all() ->
         shard_bad_verification,
         shard_cas_mismatch,
         shard_footered_tolerated,
-        shard_bare_alias
+        shard_bare_alias,
+        reconstruction_full,
+        reconstruction_range,
+        reconstruction_errors,
+        reconstruction_empty_file,
+        reconstruction_v2_consistency,
+        head_file
     ].
 
 init_per_suite(Config) ->
@@ -321,6 +333,139 @@ shard_bare_alias(_Config) ->
     Bin = xet_shard:encode_upload(#{files => [maps:get(file, World)], cas => []}),
     {200, Body} = post_shard(base(), "/shards", Bin),
     ?assertEqual(#{<<"result">> => 1}, json:decode(Body)).
+
+%%--------------------------------------------------------------------
+%% Reconstructions
+%%--------------------------------------------------------------------
+
+registered_file(Seeds) ->
+    World = shard_world(Seeds),
+    Bin = xet_shard:encode_upload(#{
+        files => [maps:get(file, World)], cas => [maps:get(cas, World)]
+    }),
+    {200, _} = post_shard(base(), "/api/v1/shards", Bin),
+    World.
+
+get_json(Path, Headers) ->
+    {ok, Status, RespHeaders, Body} = hackney:request(
+        get,
+        base() ++ Path,
+        [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>} | Headers],
+        <<>>,
+        [with_body]
+    ),
+    Decoded =
+        case Status of
+            200 -> json:decode(Body);
+            _ -> Body
+        end,
+    {Status, RespHeaders, Decoded}.
+
+reconstruction_path(Prefix, World) ->
+    Prefix ++ binary_to_list(xet_hash:to_string(maps:get(file_hash, World))).
+
+reconstruction_full(_Config) ->
+    World = registered_file([60, 61, 62]),
+    {200, Headers, Body} = get_json(reconstruction_path("/api/v1/reconstructions/", World), []),
+    ?assertEqual(
+        <<"private, no-store">>, proplists:get_value(<<"cache-control">>, Headers)
+    ),
+    ?assertEqual(0, maps:get(<<"offset_into_first_range">>, Body)),
+    XorbHashStr = xet_hash:to_string(maps:get(hash, maps:get(xorb, World))),
+    [Term] = maps:get(<<"terms">>, Body),
+    ?assertEqual(XorbHashStr, maps:get(<<"hash">>, Term)),
+    N = length(maps:get(entries, World)),
+    ?assertEqual(#{<<"start">> => 0, <<"end">> => N}, maps:get(<<"range">>, Term)),
+    #{XorbHashStr := [Fetch]} = maps:get(<<"fetch_info">>, Body),
+    Url = maps:get(<<"url">>, Fetch),
+    ?assertNotEqual(nomatch, binary:match(Url, <<"/data?exp=">>)),
+    ?assertNotEqual(nomatch, binary:match(Url, <<"&sig=">>)),
+    LastBoundary = lists:last(maps:get(boundary_offsets, maps:get(xorb, World))),
+    ?assertEqual(
+        #{<<"start">> => 0, <<"end">> => LastBoundary - 1},
+        maps:get(<<"url_range">>, Fetch)
+    ).
+
+reconstruction_range(_Config) ->
+    World = registered_file([63, 64, 65]),
+    Entries = maps:get(entries, World),
+    Total = lists:sum([S || {_, S} <- Entries]),
+    Start = Total div 3,
+    End = 2 * Total div 3,
+    {200, _, Body} = get_json(
+        reconstruction_path("/api/v1/reconstructions/", World),
+        [{<<"range">>, iolist_to_binary(io_lib:format("bytes=~b-~b", [Start, End]))}]
+    ),
+    Offset = maps:get(<<"offset_into_first_range">>, Body),
+    Terms = maps:get(<<"terms">>, Body),
+    ?assert(Offset >= 0),
+    Unpacked = lists:sum([maps:get(<<"unpacked_length">>, T) || T <- Terms]),
+    ?assert(Unpacked - Offset >= End - Start + 1),
+    [First | _] = Terms,
+    FirstLen = maps:get(<<"unpacked_length">>, First),
+    ?assert(Offset < FirstLen).
+
+reconstruction_errors(_Config) ->
+    World = registered_file([66]),
+    Path = reconstruction_path("/api/v1/reconstructions/", World),
+    Unknown = binary:copy(<<"ab">>, 32),
+    {S404, _, _} = get_json("/api/v1/reconstructions/" ++ binary_to_list(Unknown), []),
+    ?assertEqual(404, S404),
+    {S416a, _, _} = get_json(Path, [{<<"range">>, <<"bytes=zz">>}]),
+    ?assertEqual(416, S416a),
+    {S416b, _, _} = get_json(Path, [{<<"range">>, <<"bytes=999999999-999999999">>}]),
+    ?assertEqual(416, S416b),
+    {S400, _, _} = get_json("/api/v1/reconstructions/nothex", []),
+    ?assertEqual(400, S400).
+
+reconstruction_empty_file(_Config) ->
+    Env = xet_server:env(xet_api_server),
+    EmptyHash = xet_hash:zero_hash(),
+    ok = xet_metadata:register_files(
+        maps:get(metadata, Env),
+        [#{file_hash => EmptyHash, total_len => 0, terms => []}],
+        []
+    ),
+    {200, _, Body} = get_json(
+        "/api/v1/reconstructions/" ++ binary_to_list(xet_hash:to_string(EmptyHash)), []
+    ),
+    ?assertEqual(0, maps:get(<<"offset_into_first_range">>, Body)),
+    ?assertEqual([], maps:get(<<"terms">>, Body)),
+    ?assertEqual(#{}, maps:get(<<"fetch_info">>, Body)).
+
+reconstruction_v2_consistency(_Config) ->
+    World = registered_file([67, 68]),
+    {200, _, V1} = get_json(reconstruction_path("/api/v1/reconstructions/", World), []),
+    {200, _, V2} = get_json(reconstruction_path("/api/v2/reconstructions/", World), []),
+    ?assertEqual(maps:get(<<"terms">>, V1), maps:get(<<"terms">>, V2)),
+    ?assertNot(is_map_key(<<"fetch_info">>, V2)),
+    ?assertNot(is_map_key(<<"xorbs">>, V1)),
+    V1Spans = lists:sort([
+        {Cas, maps:get(<<"start">>, R), maps:get(<<"end">>, R)}
+     || {Cas, Fetches} <- maps:to_list(maps:get(<<"fetch_info">>, V1)),
+        #{<<"url_range">> := R} <- Fetches
+    ]),
+    V2Spans = lists:sort([
+        {Cas, maps:get(<<"start">>, B), maps:get(<<"end">>, B)}
+     || {Cas, [Entry]} <- maps:to_list(maps:get(<<"xorbs">>, V2)),
+        #{<<"bytes">> := B} <- maps:get(<<"ranges">>, Entry)
+    ]),
+    ?assertEqual(V1Spans, V2Spans),
+    %% Also served under the bare /v2 prefix.
+    {200, _, _} = get_json(reconstruction_path("/v2/reconstructions/", World), []).
+
+head_file(_Config) ->
+    World = registered_file([69]),
+    Path = reconstruction_path("/api/v1/files/", World),
+    {ok, S1, _} = hackney:request(
+        head, base() ++ Path, [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}], <<>>, []
+    ),
+    ?assertEqual(200, S1),
+    Unknown = "/api/v1/files/" ++ binary_to_list(binary:copy(<<"cd">>, 32)),
+    {ok, S2, _} = hackney:request(
+        head, base() ++ Unknown, [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}], <<>>, []
+    ),
+    ?assertEqual(404, S2).
 
 %% Any single corrupted byte outside the ignorable nonce yields 400; a
 %% nonce flip is indistinguishable content and lands 200.

@@ -22,6 +22,8 @@
 -type handle() :: {module(), term()}.
 -type xorb_meta() :: #{
     hash := xet_hash:hash(),
+    %% Blob store namespace the xorb was uploaded under.
+    ns => binary(),
     entries := [xet_hash:entry()],
     boundary_offsets := [pos_integer()],
     unpacked_offsets := [pos_integer()],

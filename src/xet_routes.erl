@@ -9,16 +9,27 @@
 %% first, xet-core clients build the second).
 -spec compile(map()) -> livery_router:router().
 compile(_Config) ->
-    Api = [
+    V1 = [
         {<<"POST">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:upload/1},
         {<<"HEAD">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:head/1},
-        {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1}
+        {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1},
+        {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v1/1},
+        {<<"HEAD">>, <<"/files/:hash">>, fun xet_h_reconstructions:head_file/1}
     ],
-    Prefixed = [
-        {Method, <<Prefix/binary, Pattern/binary>>, Handler}
-     || Prefix <- [<<"/api/v1">>, <<"/v1">>],
-        {Method, Pattern, Handler} <- Api
+    V2 = [
+        {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v2/1}
     ],
+    Prefixed =
+        [
+            {Method, <<Prefix/binary, Pattern/binary>>, Handler}
+         || Prefix <- [<<"/api/v1">>, <<"/v1">>],
+            {Method, Pattern, Handler} <- V1
+        ] ++
+            [
+                {Method, <<Prefix/binary, Pattern/binary>>, Handler}
+             || Prefix <- [<<"/api/v2">>, <<"/v2">>],
+                {Method, Pattern, Handler} <- V2
+            ],
     livery_router:compile([
         {<<"GET">>, <<"/healthz">>, fun health/1},
         %% xet-core posts shards to the bare path.
