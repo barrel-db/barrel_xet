@@ -15,6 +15,7 @@ static ErlNifFunc nif_funcs[] = {
     {"lz4f_decompress_dirty_nif", 2, xet_lz4f_decompress, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"gearhash_scan_nif", 3, xet_gearhash_scan, 0},
     {"gearhash_scan_dirty_nif", 3, xet_gearhash_scan, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"fsync_dir_nif", 1, xet_fsync_dir, ERL_NIF_DIRTY_JOB_IO_BOUND},
 };
 
 ERL_NIF_INIT(xet_nif, nif_funcs, NULL, NULL, NULL, NULL)

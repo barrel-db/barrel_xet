@@ -18,4 +18,7 @@ ERL_NIF_TERM xet_lz4f_decompress(ErlNifEnv *env, int argc, const ERL_NIF_TERM ar
 /* xet_gearhash.c */
 ERL_NIF_TERM xet_gearhash_scan(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]);
 
+/* xet_fsync.c */
+ERL_NIF_TERM xet_fsync_dir(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]);
+
 #endif

@@ -23,6 +23,7 @@ SRCS := xet_nif.c \
 	xet_blake3.c \
 	xet_lz4.c \
 	xet_gearhash.c \
+	xet_fsync.c \
 	blake3/blake3.c \
 	blake3/blake3_dispatch.c \
 	blake3/blake3_portable.c \
