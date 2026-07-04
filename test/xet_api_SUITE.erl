@@ -30,7 +30,10 @@
     data_roundtrip/1,
     data_range/1,
     data_forbidden/1,
-    data_errors/1
+    data_errors/1,
+    chunk_dedup_flow/1,
+    chunk_miss/1,
+    key_rotation/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
@@ -63,7 +66,10 @@ all() ->
         data_roundtrip,
         data_range,
         data_forbidden,
-        data_errors
+        data_errors,
+        chunk_dedup_flow,
+        chunk_miss,
+        key_rotation
     ].
 
 init_per_suite(Config) ->
@@ -89,7 +95,7 @@ post_xorb(Base, Path, Body) ->
         Base ++ Path,
         [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
         Body,
-        [with_body]
+        [with_body, {pool, false}]
     ),
     {Status, RespBody}.
 
@@ -99,7 +105,7 @@ head_xorb(Base, Path) ->
         Base ++ Path,
         [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
         <<>>,
-        []
+        [{pool, false}]
     ),
     Status.
 
@@ -180,7 +186,7 @@ bad_targets(_Config) ->
 unauthorized(_Config) ->
     Enc = sample_xorb([15]),
     {ok, Status, _, _} = hackney:request(
-        post, base() ++ path_for(Enc), [], maps:get(bin, Enc), [with_body]
+        post, base() ++ path_for(Enc), [], maps:get(bin, Enc), [with_body, {pool, false}]
     ),
     ?assertEqual(401, Status).
 
@@ -266,7 +272,7 @@ post_shard(Base, Path, Body) ->
         Base ++ Path,
         [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
         Body,
-        [with_body]
+        [with_body, {pool, false}]
     ),
     {Status, RespBody}.
 
@@ -360,7 +366,7 @@ get_json(Path, Headers) ->
         base() ++ Path,
         [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>} | Headers],
         <<>>,
-        [with_body]
+        [with_body, {pool, false}]
     ),
     Decoded =
         case Status of
@@ -466,12 +472,16 @@ head_file(_Config) ->
     World = registered_file([69]),
     Path = reconstruction_path("/api/v1/files/", World),
     {ok, S1, _} = hackney:request(
-        head, base() ++ Path, [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}], <<>>, []
+        head, base() ++ Path, [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}], <<>>, [
+            {pool, false}
+        ]
     ),
     ?assertEqual(200, S1),
     Unknown = "/api/v1/files/" ++ binary_to_list(binary:copy(<<"cd">>, 32)),
     {ok, S2, _} = hackney:request(
-        head, base() ++ Unknown, [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}], <<>>, []
+        head, base() ++ Unknown, [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}], <<>>, [
+            {pool, false}
+        ]
     ),
     ?assertEqual(404, S2).
 
@@ -486,7 +496,9 @@ fetch_url(World) ->
     {maps:get(<<"url">>, Fetch), maps:get(<<"url_range">>, Fetch)}.
 
 raw_get(Url, Headers) ->
-    {ok, Status, RespHeaders, Body} = hackney:request(get, Url, Headers, <<>>, [with_body]),
+    {ok, Status, RespHeaders, Body} = hackney:request(get, Url, Headers, <<>>, [
+        with_body, {pool, false}
+    ]),
     {Status, RespHeaders, Body}.
 
 data_roundtrip(_Config) ->
@@ -574,21 +586,88 @@ data_errors(_Config) ->
     ]),
     {404, _, _} = raw_get(Missing, []).
 
+%%--------------------------------------------------------------------
+%% Global dedup chunks endpoint
+%%--------------------------------------------------------------------
+
+get_chunk(HashStr) ->
+    {ok, Status, Headers, Body} = hackney:request(
+        get,
+        base() ++ "/api/v1/chunks/default-merkledb/" ++ binary_to_list(HashStr),
+        [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
+        <<>>,
+        [with_body, {pool, false}]
+    ),
+    {Status, Headers, Body}.
+
+chunk_dedup_flow(_Config) ->
+    World = registered_file([80, 81, 82]),
+    [{FirstHash, _} | _] = maps:get(entries, World),
+    {200, Headers, Body} = get_chunk(xet_hash:to_string(FirstHash)),
+    ?assertEqual(
+        <<"private, max-age=3600">>, proplists:get_value(<<"cache-control">>, Headers)
+    ),
+    ?assertEqual(<<"authorization">>, proplists:get_value(<<"vary">>, Headers)),
+    ?assertEqual(
+        <<"application/octet-stream">>, proplists:get_value(<<"content-type">>, Headers)
+    ),
+    {ok, Shard} = xet_shard:decode(Body),
+    Footer = maps:get(footer, Shard),
+    ?assertNotEqual(xet_hash:zero_hash(), maps:get(chunk_hash_key, Footer)),
+    ?assert(maps:get(key_expiry, Footer) > erlang:system_time(second)),
+    %% Client-side matching with the raw (unkeyed) chunk hash.
+    ?assertEqual(
+        {ok, #{cas_hash => maps:get(hash, maps:get(xorb, World)), chunk_index => 0}},
+        xet_dedup:match(Shard, FirstHash)
+    ),
+    %% Raw hashes never appear on the wire.
+    ?assertEqual(nomatch, binary:match(Body, FirstHash)).
+
+chunk_miss(_Config) ->
+    {404, _, _} = get_chunk(xet_hash:to_string(<<987654:256>>)).
+
+key_rotation(_Config) ->
+    World = registered_file([83, 84]),
+    [{FirstHash, _} | _] = maps:get(entries, World),
+    HashStr = xet_hash:to_string(FirstHash),
+    {200, _, Body1} = get_chunk(HashStr),
+    ok = xet_keys:rotate(xet_api_server),
+    {200, _, Body2} = get_chunk(HashStr),
+    {ok, Shard1} = xet_shard:decode(Body1),
+    {ok, Shard2} = xet_shard:decode(Body2),
+    Key1 = maps:get(chunk_hash_key, maps:get(footer, Shard1)),
+    Key2 = maps:get(chunk_hash_key, maps:get(footer, Shard2)),
+    ?assertNotEqual(Key1, Key2),
+    %% Both generations of the response match the same original chunk.
+    ?assertMatch({ok, _}, xet_dedup:match(Shard1, FirstHash)),
+    ?assertMatch({ok, _}, xet_dedup:match(Shard2, FirstHash)),
+    %% The rotated ring is persisted with the old key as previous.
+    Env = xet_server:env(xet_api_server),
+    {ok, Ring} = xet_metadata:get_key_ring(maps:get(metadata, Env)),
+    ?assertEqual(Key2, maps:get(key, maps:get(current, Ring))),
+    ?assertEqual(Key1, maps:get(key, maps:get(previous, Ring))).
+
 %% Any single corrupted byte outside the ignorable nonce yields 400; a
 %% nonce flip is indistinguishable content and lands 200.
+%% A fresh xorb per iteration: a nonce-region flip legitimately stores
+%% the xorb, so reusing one path would let a later corrupt POST hit the
+%% idempotent "already exists" short-circuit and wrongly pass.
 corruption_property(_Config) ->
-    Enc = sample_xorb([30, 31]),
-    Bin = maps:get(bin, Enc),
-    Size = byte_size(Bin),
-    NonceStart = Size - 20,
-    Path = path_for(Enc),
-    Forall = proper:forall(proper_types:integer(0, Size - 1), fun(Pos) ->
-        <<Before:Pos/binary, Byte, After/binary>> = Bin,
-        Flipped = <<Before/binary, (Byte bxor 255), After/binary>>,
-        {Status, _} = post_xorb(base(), Path, Flipped),
-        case Pos >= NonceStart andalso Pos < NonceStart + 4 of
-            true -> Status =:= 200;
-            false -> Status =:= 400
+    Forall = proper:forall(
+        {proper_types:integer(1000, 1 bsl 30), proper_types:integer(0, 1 bsl 30)},
+        fun({Seed, PosSeed}) ->
+            Enc = sample_xorb([Seed, Seed + 1]),
+            Bin = maps:get(bin, Enc),
+            Size = byte_size(Bin),
+            Pos = PosSeed rem Size,
+            NonceStart = Size - 20,
+            <<Before:Pos/binary, Byte, After/binary>> = Bin,
+            Flipped = <<Before/binary, (Byte bxor 255), After/binary>>,
+            {Status, _} = post_xorb(base(), path_for(Enc), Flipped),
+            case Pos >= NonceStart andalso Pos < NonceStart + 4 of
+                true -> Status =:= 200;
+                false -> Status =:= 400
+            end
         end
-    end),
+    ),
     ?assert(proper:quickcheck(Forall, [{numtests, 30}, noshrink, quiet])).

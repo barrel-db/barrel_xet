@@ -41,7 +41,7 @@ standalone CAS server.
 - [x] T5.3 Shard upload + registration
 - [x] T5.4 Reconstruction endpoints v1 + v2 + HEAD files
 - [x] T5.5 FS data endpoint + caching header conformance
-- [ ] T5.6 Chunks endpoint + HMAC key rotation
+- [x] T5.6 Chunks endpoint + HMAC key rotation
 
 ## Phase 6: Client
 

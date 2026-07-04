@@ -59,6 +59,11 @@ init(Config) ->
             shutdown => 10000
         },
         #{
+            id => keys,
+            start => {xet_keys, start_link, [Config]},
+            shutdown => 5000
+        },
+        #{
             id => listener,
             start => {xet_server_listener, start_link, [Config]},
             shutdown => 10000
@@ -84,6 +89,7 @@ normalize(Config) ->
         %% restart, clients recover via 403 -> reconstruction re-query.
         %% Set explicitly for stable URLs across restarts.
         url_secret => crypto:strong_rand_bytes(32),
+        key_rotation_interval => 86400,
         ratelimit => false,
         concurrency => false
     },

@@ -15,7 +15,8 @@ compile(_Config) ->
         {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1},
         {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v1/1},
         {<<"HEAD">>, <<"/files/:hash">>, fun xet_h_reconstructions:head_file/1},
-        {<<"GET">>, <<"/xorbs/:ns/:hash/data">>, fun xet_h_data:get/1}
+        {<<"GET">>, <<"/xorbs/:ns/:hash/data">>, fun xet_h_data:get/1},
+        {<<"GET">>, <<"/chunks/:ns/:hash">>, fun xet_h_chunks:get/1}
     ],
     V2 = [
         {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v2/1}
