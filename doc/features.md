@@ -36,7 +36,7 @@ standalone CAS server.
 
 ## Phase 5: Server API
 
-- [ ] T5.1 Service skeleton: routes, auth, middleware, healthz
+- [x] T5.1 Service skeleton: routes, auth, middleware, healthz
 - [ ] T5.2 Xorb upload (spool, validate, commit) + HEAD
 - [ ] T5.3 Shard upload + registration
 - [ ] T5.4 Reconstruction endpoints v1 + v2 + HEAD files
