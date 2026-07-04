@@ -94,6 +94,11 @@ jobs:
           rebar3-version: '3.25.0'
       - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
+      # The vendored Python reference client needs 3.14+ (deferred
+      # annotation evaluation); on 3.12/3.13 it raises at import time.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
       - name: Python reference client (cross-impl e2e)
         run: python3 -m pip install --quiet blake3 lz4 requests || true
       - uses: actions/cache@v5
