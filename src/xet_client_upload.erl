@@ -48,7 +48,8 @@ upload_files(Client, Files, Opts) ->
     Encoded = encode_xorbs(Xorbs),
     maybe
         ok ?= upload_xorbs(Client, Encoded, Opts),
-        ok ?= register_shard(Client, Planned, Encoded),
+        {ok, ShardBin} ?= register_shard(Client, Planned, Encoded),
+        ok = cache_shard(Opts, ShardBin),
         {ok, [result(F, Stats) || F <- Planned]}
     end.
 
@@ -71,7 +72,7 @@ plan(Client, Chunked, Opts) ->
 
 plan_opts(_Client, _Chunked, #{dedup := false}) ->
     #{};
-plan_opts(Client, Chunked, _Opts) ->
+plan_opts(Client, Chunked, Opts) ->
     %% Match every local chunk hash against each dedupe response: one
     %% dedupe shard covers a whole xorb, so a single eligible-chunk query
     %% can dedup all of the client's chunks that live in that xorb.
@@ -79,7 +80,14 @@ plan_opts(Client, Chunked, _Opts) ->
         xet_hash:chunk_hash(C)
      || {_FileId, Chunks} <- Chunked, C <- Chunks
     ]),
-    #{query => fun(ChunkHash) -> query_dedup(Client, ChunkHash, KnownHashes) end}.
+    Base = #{query => fun(ChunkHash) -> query_dedup(Client, ChunkHash, KnownHashes) end},
+    %% The local shard cache is consulted before any global query.
+    case Opts of
+        #{shard_cache := Cache} ->
+            Base#{cache => fun(Hash) -> xet_shard_cache:lookup(Cache, Hash) end};
+        _ ->
+            Base
+    end.
 
 query_dedup(Client, ChunkHash, KnownHashes) ->
     case xet_client:query_chunk(Client, ?DEDUP_NS, ChunkHash) of
@@ -139,9 +147,14 @@ register_shard(Client, Planned, Encoded) ->
         cas => [cas_info(E) || E <- Encoded]
     }),
     case xet_client:upload_shard(Client, Shard) of
-        {ok, #{result := _}} -> ok;
+        {ok, #{result := _}} -> {ok, Shard};
         {error, _} = Error -> Error
     end.
+
+cache_shard(#{shard_cache := Cache}, ShardBin) ->
+    xet_shard_cache:store(Cache, ShardBin);
+cache_shard(_Opts, _ShardBin) ->
+    ok.
 
 file_info(File) ->
     Base = #{
