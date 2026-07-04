@@ -41,3 +41,9 @@ check: fmt-check compile xref lint eunit proper ct dialyzer
 
 fixtures:
 	sh scripts/fetch_fixtures.sh
+
+release:
+	$(REBAR) as prod release
+
+smoke:
+	bash scripts/smoke_release.sh

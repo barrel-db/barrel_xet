@@ -1,0 +1,8 @@
+-name barrel_xet@127.0.0.1
+-setcookie barrel_xet_cookie
+
++K true
++A 16
++sbwt very_short
++sbwtdcpu very_short
++sbwtdio very_short

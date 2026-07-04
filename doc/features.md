@@ -57,7 +57,7 @@ standalone CAS server.
 - [x] T7.1 Reference fixture interop suite
 - [x] T7.2 Cross-implementation e2e (Python reference client) + restart durability
 - [x] T7.3 Load smoke + observability
-- [ ] T7.4 Server release packaging (relx)
+- [x] T7.4 Server release packaging (relx)
 - [ ] T7.5 Docs + v0.1.0 tag + CI wiring
 
 ## Deferred beyond 0.1

@@ -4,7 +4,7 @@
 %% (xet_server_stores), then the HTTP listener.
 -module(xet_server).
 
--export([start/1, stop/1, port/1, ports/1, env/1]).
+-export([start/1, start_instance/1, stop/1, port/1, ports/1, env/1]).
 -export([start_link/1]).
 -export([init/1]).
 
@@ -12,9 +12,17 @@
 
 -define(DEFAULT_MAX_BODY, 83886080).
 
+%% Public entry: ensure the app is running, then start an instance.
 -spec start(map()) -> {ok, pid()} | {error, term()}.
 start(Config0) ->
     {ok, _} = application:ensure_all_started([barrel_xet]),
+    start_instance(Config0).
+
+%% Add a server instance under the (already running) app supervisor. Also
+%% used by barrel_xet_app to autostart a configured server on boot, where
+%% ensuring the app would deadlock.
+-spec start_instance(map()) -> {ok, pid()} | {error, term()}.
+start_instance(Config0) ->
     maybe_start_instrument(Config0),
     Config = normalize(Config0),
     Name = maps:get(name, Config),
