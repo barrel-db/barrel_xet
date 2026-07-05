@@ -15,7 +15,10 @@
     restart_survives_caller/1,
     h2_tls_listener/1,
     invalid_config/1,
-    auth_file_reload/1
+    auth_file_reload/1,
+    tls_misconfig/1,
+    h3_listener/1,
+    h2_cert_rotation/1
 ]).
 
 all() ->
@@ -29,7 +32,10 @@ all() ->
         restart_survives_caller,
         h2_tls_listener,
         invalid_config,
-        auth_file_reload
+        auth_file_reload,
+        tls_misconfig,
+        h3_listener,
+        h2_cert_rotation
     ].
 
 init_per_suite(Config) ->
@@ -169,6 +175,104 @@ invalid_config(Config) ->
         auth => {xet_auth_static, #{tokens => #{<<>> => write}}}
     }),
     ?assertEqual([<<"auth tokens must not be empty">>], Errors2).
+
+%% TLS misconfiguration is a listed boot error naming the offending
+%% file, not a listener that dies at the first handshake.
+tls_misconfig(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "tlsbad"),
+    Auth = {xet_auth_static, #{tokens => #{}}},
+    {error, {invalid_config, E1}} = xet_server:start(#{
+        name => xet_tls_bad,
+        data_dir => Dir,
+        auth => Auth,
+        https => #{port => 0, cert => "/nope/c.pem", key => "/nope/k.pem"}
+    }),
+    ?assert(lists:any(fun(E) -> binary:match(E, <<"/nope/c.pem">>) =/= nomatch end, E1)),
+    ?assert(lists:any(fun(E) -> binary:match(E, <<"/nope/k.pem">>) =/= nomatch end, E1)),
+    {error, {invalid_config, E2}} = xet_server:start(#{
+        name => xet_tls_bad,
+        data_dir => Dir,
+        auth => Auth,
+        https => #{port => 0, cert => "somewhere.pem"}
+    }),
+    ?assert(lists:member(<<"https listener needs cert and key (PEM file paths)">>, E2)).
+
+%% The QUIC listener boots from the same PEM file paths as https: the
+%% config loader turns them into the DER cert and decoded key record.
+h3_listener(Config) ->
+    case os:find_executable("openssl") of
+        false ->
+            {skip, "openssl not available for self-signed cert"};
+        _ ->
+            Dir = filename:join(proplists:get_value(priv_dir, Config), "h3"),
+            {Cert, Key} = gen_cert(Dir, "h3"),
+            {ok, _} = xet_server:start(#{
+                name => xet_h3_server,
+                data_dir => filename:join(Dir, "data"),
+                http3 => #{port => 0, cert => Cert, key => Key},
+                auth => {xet_auth_static, #{tokens => #{}}}
+            }),
+            try
+                Ports = xet_server:ports(xet_h3_server),
+                ?assert(is_map_key(h3, Ports)),
+                %% The default cleartext listener still serves alongside.
+                {Status, _, _} = get_(base_url(xet_h3_server) ++ "/healthz", []),
+                ?assertEqual(200, Status)
+            after
+                ok = xet_server:stop(xet_h3_server)
+            end
+    end.
+
+%% h1/h2 read certfile/keyfile through the OTP PEM cache: replacing the
+%% files and clearing the cache serves the new certificate on new
+%% handshakes without a restart. (http3 captures the DER at boot and
+%% needs one.)
+h2_cert_rotation(Config) ->
+    case os:find_executable("openssl") of
+        false ->
+            {skip, "openssl not available for self-signed cert"};
+        _ ->
+            Dir = filename:join(proplists:get_value(priv_dir, Config), "rotate"),
+            {CertA, KeyA} = gen_cert(Dir, "aa"),
+            {CertB, KeyB} = gen_cert(Dir, "bb"),
+            Cert = filename:join(Dir, "cert.pem"),
+            Key = filename:join(Dir, "key.pem"),
+            {ok, _} = file:copy(CertA, Cert),
+            {ok, _} = file:copy(KeyA, Key),
+            {ok, _} = xet_server:start(#{
+                name => xet_rotate_server,
+                data_dir => filename:join(Dir, "data"),
+                https => #{port => 0, cert => Cert, key => Key},
+                auth => {xet_auth_static, #{tokens => #{}}}
+            }),
+            try
+                Port = maps:get(h2, xet_server:ports(xet_rotate_server)),
+                Der1 = peer_der(Port),
+                {ok, _} = file:copy(CertB, Cert),
+                {ok, _} = file:copy(KeyB, Key),
+                ok = ssl:clear_pem_cache(),
+                Der2 = peer_der(Port),
+                ?assertNotEqual(Der1, Der2)
+            after
+                ok = xet_server:stop(xet_rotate_server)
+            end
+    end.
+
+gen_cert(Dir, Base) ->
+    ok = filelib:ensure_path(Dir),
+    Cert = filename:join(Dir, Base ++ "_cert.pem"),
+    Key = filename:join(Dir, Base ++ "_key.pem"),
+    _ = os:cmd(
+        "openssl req -x509 -newkey rsa:2048 -nodes -keyout " ++ Key ++
+            " -out " ++ Cert ++ " -days 2 -subj /CN=" ++ Base ++ " 2>/dev/null"
+    ),
+    {Cert, Key}.
+
+peer_der(Port) ->
+    {ok, Sock} = ssl:connect("127.0.0.1", Port, [{verify, verify_none}, binary], 5000),
+    {ok, Der} = ssl:peercert(Sock),
+    ok = ssl:close(Sock),
+    Der.
 
 %% Tokens live in a file: appending one and reloading grants access
 %% without a restart, rewriting without it revokes the same way.

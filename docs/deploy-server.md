@@ -40,6 +40,23 @@ Then set environment variables as needed; every one has a default:
 | `BARREL_XET_LOG_LEVEL` | `notice` |
 | `BARREL_XET_NODE` | `barrel_xet@127.0.0.1` |
 
+### TLS
+
+Point `BARREL_XET_TLS_CERT` and `BARREL_XET_TLS_KEY` at PEM files to
+serve HTTPS (HTTP/1.1 + HTTP/2 via ALPN) on `BARREL_XET_HTTPS_PORT`.
+Add an `http3 => #{port, cert, key}` map in the config for HTTP/3; it
+takes the same PEM paths. A missing or unparsable file fails the boot
+with the offending path listed. Encrypted keys are not supported.
+
+To rotate certificates on https without a restart, replace the files
+and clear the PEM cache; new handshakes serve the new certificate:
+
+```sh
+bin/barrel_xet eval 'ssl:clear_pem_cache().'
+```
+
+http3 captures the certificate at boot: restart after replacing it.
+
 Notes:
 
 - `data_dir` holds the rocksdb metadata (`metadata/`) and, for the

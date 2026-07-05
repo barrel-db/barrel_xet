@@ -91,10 +91,9 @@ bad_port_test() ->
         [<<"http port 70000 is not 0..65535">>],
         errors(valid(#{http => #{port => 70000}}))
     ),
-    ?assertEqual(
-        [<<"https port -1 is not 0..65535">>],
-        errors(valid(#{https => #{port => -1, cert => "c.pem", key => "k.pem"}}))
-    ).
+    %% The bogus cert/key paths also error; the port error is listed too.
+    Errors = errors(valid(#{https => #{port => -1, cert => "c.pem", key => "k.pem"}})),
+    ?assert(lists:member(<<"https port -1 is not 0..65535">>, Errors)).
 
 listener_not_a_map_test() ->
     ?assertEqual([<<"https listener must be a map">>], errors(valid(#{https => true}))).
@@ -167,3 +166,30 @@ bad_observability_test() ->
 unknown_keys_still_load_test() ->
     {ok, Config} = xet_config:load(valid(#{frobnicate => 1})),
     ?assertEqual(1, maps:get(frobnicate, Config)).
+
+https_requires_cert_and_key_test() ->
+    ?assertEqual(
+        [<<"https listener needs cert and key (PEM file paths)">>],
+        errors(valid(#{https => #{port => 8443, cert => "c.pem"}}))
+    ).
+
+tls_missing_files_test() ->
+    Errors = errors(
+        valid(#{https => #{port => 8443, cert => "/nope/c.pem", key => "/nope/k.pem"}})
+    ),
+    ?assertEqual(2, length(Errors)),
+    ?assert(lists:all(fun(E) -> binary:match(E, <<"enoent">>) =/= nomatch end, Errors)).
+
+tls_junk_pem_test() ->
+    Path = filename:join(
+        os:getenv("TMPDIR", "/tmp"),
+        "xet_config_junk_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
+    ok = file:write_file(Path, <<"not a pem at all">>),
+    try
+        Errors = errors(valid(#{http3 => #{port => 0, cert => Path, key => Path}})),
+        ?assertEqual(2, length(Errors)),
+        ?assert(lists:all(fun(E) -> binary:match(E, <<"not a PEM file">>) =/= nomatch end, Errors))
+    after
+        file:delete(Path)
+    end.

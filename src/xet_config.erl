@@ -38,8 +38,9 @@
 -spec load(term()) -> {ok, map()} | {error, {invalid_config, [binary()]}}.
 load(Config0) when is_map(Config0) ->
     warn_unknown(Config0),
-    Config = drop_empty(Config0),
-    case validate(Config) of
+    Config1 = drop_empty(Config0),
+    {Config, TlsErrors} = prepare_tls(Config1),
+    case TlsErrors ++ validate(Config) of
         [] -> {ok, defaults(Config)};
         Errors -> {error, {invalid_config, Errors}}
     end;
@@ -79,6 +80,98 @@ drop_empty(Proto, Config) ->
 empty_value(<<>>) -> true;
 empty_value("") -> true;
 empty_value(_) -> false.
+
+%% h1/h2 (https) take cert/key as PEM file paths, which livery turns
+%% into certfile/keyfile ssl options, so replacing the files and running
+%% ssl:clear_pem_cache() serves the new certificate on new handshakes.
+%% The QUIC listener (http3) instead wants the DER certificate and the
+%% decoded key record, captured at boot: both are loaded from the same
+%% PEM paths here, so operator config is uniform and a bad path or file
+%% fails the boot naming the file instead of dying at the first
+%% handshake. http3 certificate changes need a restart (or livery's
+%% sni_callback for per-handshake selection).
+prepare_tls(Config) ->
+    lists:foldl(
+        fun(Proto, {Cfg, Errors}) ->
+            {Cfg1, New} = prepare_listener_tls(Proto, Cfg),
+            {Cfg1, Errors ++ New}
+        end,
+        {Config, []},
+        [https, http3]
+    ).
+
+prepare_listener_tls(Proto, Config) ->
+    case maps:get(Proto, Config, undefined) of
+        Listener when is_map(Listener) ->
+            prepared(Proto, Listener, Config, tls_material(Proto, Listener));
+        _ ->
+            {Config, []}
+    end.
+
+prepared(_Proto, _Listener, Config, {error, Errors}) ->
+    {Config, Errors};
+prepared(https, _Listener, Config, {ok, _Certs, _Key}) ->
+    %% Paths validated; livery gets them verbatim.
+    {Config, []};
+prepared(http3, Listener, Config, {ok, [Cert | Chain], Key}) ->
+    Loaded = Listener#{cert := Cert, key := Key, cert_chain => Chain},
+    {Config#{http3 := Loaded}, []}.
+
+tls_material(Proto, Listener) ->
+    case {maps:get(cert, Listener, undefined), maps:get(key, Listener, undefined)} of
+        {Cert, Key} when Cert =/= undefined, Key =/= undefined ->
+            read_tls(Proto, Cert, Key);
+        _ ->
+            {error, [format("~ts listener needs cert and key (PEM file paths)", [Proto])]}
+    end.
+
+read_tls(Proto, CertPath, KeyPath) ->
+    case {pem_certs(Proto, CertPath), pem_key(Proto, KeyPath)} of
+        {{ok, Certs}, {ok, Key}} -> {ok, Certs, Key};
+        {CertRes, KeyRes} -> {error, errors_of(CertRes) ++ errors_of(KeyRes)}
+    end.
+
+errors_of({ok, _}) -> [];
+errors_of({error, Errors}) -> Errors.
+
+pem_certs(Proto, Path) ->
+    case read_pem(Proto, <<"cert">>, Path) of
+        {ok, Entries} ->
+            case [Der || {'Certificate', Der, not_encrypted} <- Entries] of
+                [] -> {error, [format("~ts cert ~ts: no certificate entry", [Proto, Path])]};
+                Certs -> {ok, Certs}
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+pem_key(Proto, Path) ->
+    case read_pem(Proto, <<"key">>, Path) of
+        {ok, Entries} -> pick_key(Proto, Path, Entries);
+        {error, _} = Error -> Error
+    end.
+
+pick_key(Proto, Path, Entries) ->
+    Tags = ['RSAPrivateKey', 'ECPrivateKey', 'PrivateKeyInfo'],
+    case [Entry || Entry <- Entries, lists:member(element(1, Entry), Tags)] of
+        [{_Tag, _Der, not_encrypted} = Entry | _] ->
+            {ok, public_key:pem_entry_decode(Entry)};
+        [_Encrypted | _] ->
+            {error, [format("~ts key ~ts: encrypted keys are not supported", [Proto, Path])]};
+        [] ->
+            {error, [format("~ts key ~ts: no private key entry", [Proto, Path])]}
+    end.
+
+read_pem(Proto, Kind, Path) ->
+    case file:read_file(Path) of
+        {ok, Bin} ->
+            case public_key:pem_decode(Bin) of
+                [] -> {error, [format("~ts ~ts ~ts: not a PEM file", [Proto, Kind, Path])]};
+                Entries -> {ok, Entries}
+            end;
+        {error, Reason} ->
+            {error, [format("~ts ~ts ~ts: ~tp", [Proto, Kind, Path, Reason])]}
+    end.
 
 validate(Config) ->
     lists:flatmap(fun(Check) -> Check(Config) end, [
