@@ -115,6 +115,10 @@ jobs:
     name: release cold-start smoke
     needs: [format, xref, lint, dialyzer, test]
     runs-on: ubuntu-24.04
+    # A cold prod build recompiles rocksdb from source (~15 min); the cache
+    # below makes warm runs a couple of minutes. The timeout turns a genuine
+    # hang into a fast failure instead of a 6-hour "in progress".
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
@@ -123,4 +127,14 @@ jobs:
           rebar3-version: '3.25.0'
       - name: System deps
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential curl liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
+      # Cache the prod build so `make smoke` reuses the compiled deps
+      # (rocksdb above all). restore-keys keeps a warm _build/prod even when
+      # rebar.config changes but the pinned deps do not.
+      - uses: actions/cache@v5
+        with:
+          path: |
+            _build/prod
+            ~/.cache/rebar3
+          key: build-prod-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
+          restore-keys: build-prod-otp-29-
       - run: make smoke
