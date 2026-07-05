@@ -73,7 +73,7 @@ upload_and_head_xorb(Config) ->
     ),
     ?assertEqual({ok, true}, xet_client:head_xorb(Client, <<"default">>, Hash)).
 
-register(Client, Enc) ->
+register_shard(Client, Enc) ->
     Hash = maps:get(hash, Enc),
     {ok, _} = xet_client:upload_xorb(Client, <<"default">>, Hash, maps:get(bin, Enc)),
     Entries = entries(Enc),
@@ -101,7 +101,7 @@ register(Client, Enc) ->
 upload_shard_and_reconstruct(Config) ->
     Client = client(Config),
     Enc = xorb([10, 11, 12]),
-    {FileHash, ShardBin} = register(Client, Enc),
+    {FileHash, ShardBin} = register_shard(Client, Enc),
     ?assertEqual({ok, #{result => 1}}, xet_client:upload_shard(Client, ShardBin)),
     ?assertEqual({ok, #{result => 0}}, xet_client:upload_shard(Client, ShardBin)),
     {ok, Recon} = xet_client:get_reconstruction(Client, FileHash),
@@ -129,7 +129,7 @@ reconstruction_v1_fallback(Config) ->
 query_chunk_hit_and_miss(Config) ->
     Client = client(Config),
     Enc = xorb([20, 21]),
-    {_FileHash, ShardBin} = register(Client, Enc),
+    {_FileHash, ShardBin} = register_shard(Client, Enc),
     {ok, _} = xet_client:upload_shard(Client, ShardBin),
     [{FirstHash, _} | _] = entries(Enc),
     {ok, Shard} = xet_client:query_chunk(Client, <<"default-merkledb">>, FirstHash),
@@ -142,7 +142,7 @@ query_chunk_hit_and_miss(Config) ->
 head_file(Config) ->
     Client = client(Config),
     Enc = xorb([30, 31]),
-    {FileHash, ShardBin} = register(Client, Enc),
+    {FileHash, ShardBin} = register_shard(Client, Enc),
     ?assertEqual({ok, false}, xet_client:head_file(Client, FileHash)),
     {ok, _} = xet_client:upload_shard(Client, ShardBin),
     ?assertEqual({ok, true}, xet_client:head_file(Client, FileHash)).

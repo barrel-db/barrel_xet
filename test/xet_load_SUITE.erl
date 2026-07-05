@@ -37,9 +37,6 @@ end_per_suite(_Config) ->
     ok = xet_server:stop(xet_load_server),
     ok.
 
-client(Config) ->
-    xet_client:new(#{endpoint => proplists:get_value(endpoint, Config), token => ?TOKEN}).
-
 %% 24 workers each upload a distinct file and download it back, all
 %% concurrently. Every roundtrip must be byte-identical.
 concurrent_upload_download(Config) ->
