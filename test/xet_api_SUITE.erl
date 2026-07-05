@@ -33,6 +33,7 @@
     data_range/1,
     data_forbidden/1,
     data_errors/1,
+    url_secret_survives_restart/1,
     chunk_dedup_flow/1,
     chunk_miss/1,
     key_rotation/1
@@ -69,6 +70,7 @@ all() ->
         data_range,
         data_forbidden,
         data_errors,
+        url_secret_survives_restart,
         chunk_dedup_flow,
         chunk_miss,
         key_rotation
@@ -587,6 +589,54 @@ data_errors(_Config) ->
         Sig
     ]),
     {404, _, _} = raw_get(Missing, []).
+
+%% Without an explicit url_secret, the secret is persisted in metadata:
+%% a signature issued before a restart verifies after it. An explicit
+%% config secret takes precedence over the persisted one.
+url_secret_survives_restart(Config) ->
+    DataDir = filename:join(proplists:get_value(priv_dir, Config), "secret"),
+    ServerCfg = #{
+        name => xet_secret_server,
+        data_dir => DataDir,
+        auth => {xet_auth_static, #{tokens => #{?TOKEN => write}}}
+    },
+    {ok, _} = xet_server:start(ServerCfg),
+    Enc = sample_xorb([90, 91]),
+    HashStr = xet_hash:to_string(maps:get(hash, Enc)),
+    Base1 = "http://127.0.0.1:" ++ integer_to_list(xet_server:port(xet_secret_server)),
+    {200, _} = post_xorb(Base1, path_for(Enc), maps:get(bin, Enc)),
+    Env1 = xet_server:env(xet_secret_server),
+    Secret1 = maps:get(url_secret, maps:get(config, Env1)),
+    %% The resolved secret is the persisted one.
+    ?assertEqual({ok, Secret1}, xet_metadata:get_url_secret(maps:get(metadata, Env1))),
+    Exp = erlang:system_time(second) + 600,
+    Sig = xet_url_signer:sign(Secret1, <<"default">>, HashStr, Exp),
+    ok = xet_server:stop(xet_secret_server),
+    {ok, _} = xet_server:start(ServerCfg),
+    %% Signatures are over ns, hash and expiry, not host and port, so the
+    %% pre-restart signature is checked against the rebound listener.
+    {200, _, Body} = raw_get(data_url(xet_secret_server, HashStr, Exp, Sig), []),
+    ?assertEqual(maps:get(bin, Enc), Body),
+    ok = xet_server:stop(xet_secret_server),
+    %% Explicit config beats the persisted secret: the old signature dies.
+    {ok, _} = xet_server:start(ServerCfg#{url_secret => binary:copy(<<"e">>, 32)}),
+    try
+        {403, _, _} = raw_get(data_url(xet_secret_server, HashStr, Exp, Sig), [])
+    after
+        ok = xet_server:stop(xet_secret_server)
+    end.
+
+data_url(Name, HashStr, Exp, Sig) ->
+    iolist_to_binary([
+        "http://127.0.0.1:",
+        integer_to_list(xet_server:port(Name)),
+        "/api/v1/xorbs/default/",
+        HashStr,
+        "/data?exp=",
+        integer_to_binary(Exp),
+        "&sig=",
+        Sig
+    ]).
 
 %%--------------------------------------------------------------------
 %% Global dedup chunks endpoint

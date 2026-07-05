@@ -230,10 +230,9 @@ defaults(Config) ->
         max_shard_bytes => 67108864,
         spool_memory_max => 16777216,
         url_ttl => 900,
-        %% Random per boot by default: presigned self URLs die on
-        %% restart, clients recover via 403 -> reconstruction re-query.
-        %% Set explicitly for stable URLs across restarts.
-        url_secret => crypto:strong_rand_bytes(32),
+        %% url_secret has no default here: when absent,
+        %% xet_server_stores reuses the secret persisted in metadata (or
+        %% generates and persists one), so signed URLs survive restarts.
         key_rotation_interval => 86400,
         ratelimit => false,
         concurrency => false

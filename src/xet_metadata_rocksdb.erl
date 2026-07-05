@@ -25,12 +25,15 @@
     find_chunk/2,
     get_key_ring/1,
     put_key_ring/2,
+    get_url_secret/1,
+    put_url_secret/2,
     stats/1
 ]).
 
 -define(SCHEMA_KEY, <<"schema">>).
 -define(SCHEMA_VERSION, <<1>>).
 -define(KEY_RING_KEY, <<"key_ring">>).
+-define(URL_SECRET_KEY, <<"url_secret">>).
 -define(VALUE_VERSION, 1).
 
 -record(db, {
@@ -127,6 +130,15 @@ get_key_ring(#db{handle = Handle, meta = Meta}) ->
 
 put_key_ring(#db{handle = Handle, meta = Meta}, Ring) ->
     rocksdb:put(Handle, Meta, ?KEY_RING_KEY, encode(Ring), [{sync, true}]).
+
+get_url_secret(#db{handle = Handle, meta = Meta}) ->
+    case rocksdb:get(Handle, Meta, ?URL_SECRET_KEY, []) of
+        {ok, Value} -> {ok, decode(Value)};
+        not_found -> not_found
+    end.
+
+put_url_secret(#db{handle = Handle, meta = Meta}, Secret) ->
+    rocksdb:put(Handle, Meta, ?URL_SECRET_KEY, encode(Secret), [{sync, true}]).
 
 stats(#db{handle = Handle} = Db) ->
     #{

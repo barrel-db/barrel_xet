@@ -63,7 +63,7 @@ standalone CAS server.
 ## Phase 8: Config + security (0.2.0)
 
 - [x] T8.1 xet_config: validated configuration with listed errors
-- [ ] T8.2 Persist url_secret in metadata (survives restarts)
+- [x] T8.2 Persist url_secret in metadata (survives restarts)
 - [ ] T8.3 Env-driven release config: sys.config.src + vm.args.src
 - [ ] T8.4 TLS first-class: boot validation, http3 PEM loading, rotation
 - [ ] T8.5 xet_auth_file: file tokens, reload, admin scope

@@ -18,6 +18,8 @@
     find_chunk/2,
     get_key_ring/1,
     put_key_ring/2,
+    get_url_secret/1,
+    put_url_secret/2,
     stats/1
 ]).
 
@@ -65,6 +67,8 @@
     {ok, {xet_hash:hash(), non_neg_integer()}} | not_found.
 -callback get_key_ring(term()) -> {ok, key_ring()} | not_found.
 -callback put_key_ring(term(), key_ring()) -> ok | {error, term()}.
+-callback get_url_secret(term()) -> {ok, binary()} | not_found.
+-callback put_url_secret(term(), binary()) -> ok | {error, term()}.
 -callback stats(term()) -> map().
 
 -spec open(module(), map()) -> {ok, handle()} | {error, term()}.
@@ -104,6 +108,14 @@ get_key_ring({Mod, State}) -> Mod:get_key_ring(State).
 
 -spec put_key_ring(handle(), key_ring()) -> ok | {error, term()}.
 put_key_ring({Mod, State}, Ring) -> Mod:put_key_ring(State, Ring).
+
+%% The signing secret for FS data URLs, persisted so signed URLs survive
+%% restarts (same lifecycle as the dedup key ring above).
+-spec get_url_secret(handle()) -> {ok, binary()} | not_found.
+get_url_secret({Mod, State}) -> Mod:get_url_secret(State).
+
+-spec put_url_secret(handle(), binary()) -> ok | {error, term()}.
+put_url_secret({Mod, State}, Secret) -> Mod:put_url_secret(State, Secret).
 
 -spec stats(handle()) -> map().
 stats({Mod, State}) -> Mod:stats(State).

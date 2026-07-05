@@ -21,7 +21,8 @@ minimal_defaults_test() ->
     ?assertEqual(900, maps:get(url_ttl, Config)),
     ?assertEqual(false, maps:get(ratelimit, Config)),
     ?assertEqual(false, maps:get(concurrency, Config)),
-    ?assertEqual(32, byte_size(maps:get(url_secret, Config))).
+    %% No default: absence lets the stores reuse the persisted secret.
+    ?assertNot(maps:is_key(url_secret, Config)).
 
 explicit_values_survive_test() ->
     {ok, Config} = xet_config:load(valid(#{url_ttl => 60, name => my_server})),
@@ -98,9 +99,9 @@ empty_tls_listener_dropped_test() ->
     ?assertNot(maps:is_key(http3, Config2)).
 
 empty_url_secret_dropped_test() ->
+    %% An unset ${VAR} substitution behaves like an absent key.
     {ok, Config} = xet_config:load(valid(#{url_secret => <<>>})),
-    %% Falls back to the random per-boot default.
-    ?assertEqual(32, byte_size(maps:get(url_secret, Config))).
+    ?assertNot(maps:is_key(url_secret, Config)).
 
 bad_sizes_test() ->
     Errors = errors(valid(#{max_body => 0, url_ttl => -5, spool_memory_max => bad})),

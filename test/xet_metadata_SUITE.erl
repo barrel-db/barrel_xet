@@ -11,6 +11,7 @@
     missing_lookups/1,
     reopen_persistence/1,
     key_ring/1,
+    url_secret/1,
     schema_guard/1,
     stats/1
 ]).
@@ -22,6 +23,7 @@ all() ->
         missing_lookups,
         reopen_persistence,
         key_ring,
+        url_secret,
         schema_guard,
         stats
     ].
@@ -125,6 +127,17 @@ key_ring(Config) ->
     Ring2 = (ring(200))#{previous => maps:get(current, Ring1)},
     ok = xet_metadata:put_key_ring(Db, Ring2),
     ?assertEqual({ok, Ring2}, xet_metadata:get_key_ring(Db)).
+
+url_secret(Config) ->
+    Db = db(Config),
+    ?assertEqual(not_found, xet_metadata:get_url_secret(Db)),
+    Secret = crypto:strong_rand_bytes(32),
+    ok = xet_metadata:put_url_secret(Db, Secret),
+    ?assertEqual({ok, Secret}, xet_metadata:get_url_secret(Db)),
+    %% Overwrite (explicit rotation) sticks.
+    Secret2 = crypto:strong_rand_bytes(32),
+    ok = xet_metadata:put_url_secret(Db, Secret2),
+    ?assertEqual({ok, Secret2}, xet_metadata:get_url_secret(Db)).
 
 schema_guard(Config) ->
     %% A database written with a different schema version must refuse to

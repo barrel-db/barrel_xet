@@ -27,13 +27,14 @@ start_link(Config) ->
     gen_server:start_link(?MODULE, Config, []).
 
 -spec init(map()) -> {ok, state()} | {stop, term()}.
-init(#{name := Name} = Config) ->
+init(#{name := Name} = Config0) ->
     process_flag(trap_exit, true),
-    MetaDir = filename:join(maps:get(data_dir, Config), "metadata"),
+    MetaDir = filename:join(maps:get(data_dir, Config0), "metadata"),
     maybe
         ok ?= filelib:ensure_path(MetaDir),
         {ok, Metadata} ?= open_metadata(MetaDir, ?OPEN_RETRIES),
-        {ok, Blob} ?= open_blob(Config),
+        {ok, Blob} ?= open_blob(Config0),
+        {ok, Config} ?= resolve_url_secret(Config0, Metadata),
         Env = #{metadata => Metadata, blob => Blob, config => Config},
         persistent_term:put({xet_server_env, Name}, Env),
         {ok, #state{name = Name, metadata = Metadata, blob = Blob}}
@@ -68,6 +69,24 @@ open_blob(#{blob := {fs, Opts}}) ->
     xet_blob_store:open(xet_store_fs, Opts);
 open_blob(#{blob := {s3, Opts}}) ->
     xet_blob_store:open(xet_store_s3, Opts).
+
+%% Signed data URLs must survive restarts: an explicit config secret
+%% wins (and is never copied into the store, so rotating it stays a pure
+%% config change), otherwise reuse the persisted one, otherwise generate
+%% and persist. Same lifecycle as the dedup key ring in xet_keys.
+resolve_url_secret(#{url_secret := _} = Config, _Metadata) ->
+    {ok, Config};
+resolve_url_secret(Config, Metadata) ->
+    case xet_metadata:get_url_secret(Metadata) of
+        {ok, Secret} ->
+            {ok, Config#{url_secret => Secret}};
+        not_found ->
+            Secret = crypto:strong_rand_bytes(32),
+            case xet_metadata:put_url_secret(Metadata, Secret) of
+                ok -> {ok, Config#{url_secret => Secret}};
+                {error, _} = Error -> Error
+            end
+    end.
 
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
