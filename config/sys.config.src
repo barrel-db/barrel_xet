@@ -1,0 +1,40 @@
+%% Standalone CAS server configuration for the release.
+%%
+%% ${VAR:-default} placeholders are substituted by the release start
+%% script on every boot (relx sys.config.src). To bypass substitution
+%% and hand-manage the whole file, point RELX_CONFIG_PATH at a plain
+%% .config file instead.
+[
+    {kernel, [
+        %% Lowercase logger level: debug | info | notice | warning | error.
+        {logger_level, ${BARREL_XET_LOG_LEVEL:-notice}}
+    ]},
+    {barrel_xet, [
+        {server, #{
+            name => barrel_xet,
+            data_dir => "${BARREL_XET_DATA_DIR:-/var/lib/barrel_xet}",
+            http => #{port => ${BARREL_XET_HTTP_PORT:-8080}},
+            %% TLS terminates here when BARREL_XET_TLS_CERT and
+            %% BARREL_XET_TLS_KEY name PEM files; with either empty the
+            %% listener is dropped and the server stays cleartext.
+            https => #{
+                port => ${BARREL_XET_HTTPS_PORT:-8443},
+                cert => "${BARREL_XET_TLS_CERT:-}",
+                key => "${BARREL_XET_TLS_KEY:-}"
+            },
+            %% Signed data URLs survive restarts by default: the secret
+            %% is generated once and persisted in the metadata store.
+            %% Set BARREL_XET_URL_SECRET only to manage it yourself
+            %% (for example, shared across nodes).
+            url_secret => <<"${BARREL_XET_URL_SECRET:-}">>,
+            %% Tokens file: one "token scope" line per token, scope is
+            %% read, write or admin, # starts a comment. Reload without
+            %% a restart:
+            %%   bin/barrel_xet eval 'xet_auth_file:reload().'
+            auth =>
+                {xet_auth_file, #{
+                    path => "${BARREL_XET_TOKENS_FILE:-/etc/barrel_xet/tokens}"
+                }}
+        }}
+    ]}
+].

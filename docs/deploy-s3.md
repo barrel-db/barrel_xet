@@ -14,7 +14,7 @@ the server entirely and ride a CDN.
 
 ## Configure
 
-Set `blob => {s3, ...}` in the `server` map (`config/sys.config`):
+Set `blob => {s3, ...}` in the `server` map (`config/sys.config.src`):
 
 ```erlang
 {server, #{

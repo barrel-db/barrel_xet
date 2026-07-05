@@ -46,9 +46,10 @@ _build/prod/rel/barrel_xet/bin/barrel_xet daemon
 curl -s http://127.0.0.1:8080/healthz      # {"status":"ok"}
 ```
 
-That uses `config/sys.config`, which ships with a filesystem backend and a
-couple of placeholder tokens. For anything real, edit that file (see the
-[deploy guide](deploy-server.md)) and change the tokens.
+That uses `config/sys.config.src`: a filesystem backend under
+`/var/lib/barrel_xet` and a tokens file at `/etc/barrel_xet/tokens`,
+both overridable through `BARREL_XET_*` environment variables (see the
+[deploy guide](deploy-server.md)).
 
 Prefer to run it from an Erlang shell while you experiment? Start the app
 and bring up a server yourself:

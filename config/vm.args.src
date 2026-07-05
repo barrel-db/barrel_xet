@@ -1,0 +1,12 @@
+-name ${BARREL_XET_NODE:-barrel_xet@127.0.0.1}
+
+# No -setcookie: the node reads or creates $HOME/.erlang.cookie, so
+# every install gets its own random cookie instead of a shared default.
+# bin/barrel_xet stop and eval must run as the same user. Distribution
+# stays on (stop and eval need it) but binds to loopback.
+-kernel inet_dist_use_interface {127,0,0,1}
+
++A 16
++sbwt very_short
++sbwtdcpu very_short
++sbwtdio very_short

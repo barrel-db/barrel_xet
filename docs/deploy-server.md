@@ -7,8 +7,9 @@ started from configuration rather than an Erlang shell.
 ## What it is
 
 `rebar3 as prod release` builds a self-contained node under
-`_build/prod/rel/barrel_xet/` that autostarts the CAS server from the
-`server` map in `config/sys.config`.
+`_build/prod/rel/barrel_xet/` that autostarts the CAS server. Its
+configuration lives in `config/sys.config.src`, whose `${VAR:-default}`
+placeholders the start script fills from the environment on every boot.
 
 ## Build
 
@@ -18,33 +19,38 @@ make release
 
 ## Configure
 
-Edit `config/sys.config`. The `server` map is passed to
-`xet_server:start_instance/1`:
+Create the tokens file, one `token scope` line per token (scope is
+`read`, `write` or `admin`, `#` starts a comment):
 
-```erlang
-{server, #{
-    name => barrel_xet,
-    data_dir => "/var/lib/barrel_xet",
-    http => #{port => 8080},
-    url_secret => <<"...32 random bytes...">>,   %% stable across restarts
-    auth => {xet_auth_static, #{tokens => #{
-        <<"write-token">> => write,
-        <<"read-token">> => read
-    }}}
-}}
+```sh
+install -m 0600 /dev/null /etc/barrel_xet/tokens
+echo "change-me-write write" >> /etc/barrel_xet/tokens
 ```
+
+Then set environment variables as needed; every one has a default:
+
+| Variable | Default |
+|---|---|
+| `BARREL_XET_DATA_DIR` | `/var/lib/barrel_xet` |
+| `BARREL_XET_HTTP_PORT` | `8080` |
+| `BARREL_XET_TOKENS_FILE` | `/etc/barrel_xet/tokens` |
+| `BARREL_XET_HTTPS_PORT` | `8443` (listener off without cert and key) |
+| `BARREL_XET_TLS_CERT` / `BARREL_XET_TLS_KEY` | empty: no TLS listener |
+| `BARREL_XET_URL_SECRET` | empty: generated once, persisted in metadata |
+| `BARREL_XET_LOG_LEVEL` | `notice` |
+| `BARREL_XET_NODE` | `barrel_xet@127.0.0.1` |
 
 Notes:
 
 - `data_dir` holds the rocksdb metadata (`metadata/`) and, for the
   filesystem backend, the xorb blobs (`xorbs/`).
-- Set `url_secret` explicitly so signed data URLs stay valid across
-  restarts; otherwise it is random per boot and clients recover via a
-  reconstruction re-query.
-- Add `https => #{port, cert, key}` and/or `http3 => #{port, cert, key}`
-  to serve HTTP/2 and HTTP/3 alongside HTTP/1.
+- Signed data URLs survive restarts by default: the signing secret is
+  generated on first boot and persisted in the metadata store. Set
+  `BARREL_XET_URL_SECRET` only to manage it yourself.
+- To add or revoke tokens without a restart, edit the tokens file and
+  run `bin/barrel_xet eval 'xet_auth_file:reload().'`.
 - For S3-backed storage, set `blob => {s3, #{bucket => ..., s3 => #{...}}}`
-  (see `docs/deploy-s3.md`).
+  in the config file (see `docs/deploy-s3.md`).
 
 ## Run
 
@@ -54,8 +60,20 @@ _build/prod/rel/barrel_xet/bin/barrel_xet foreground  # attached
 _build/prod/rel/barrel_xet/bin/barrel_xet stop
 ```
 
-Point a config elsewhere with `RELX_CONFIG_PATH=/path/to/your.config`
-(the file must end in `.config`).
+`daemon` waits for the node over distribution, so the very first boot
+needs a cookie file to exist (later boots reuse it):
+
+```sh
+head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > $HOME/.erlang.cookie
+chmod 400 $HOME/.erlang.cookie
+```
+
+`foreground` (what systemd and Docker run) has no such wait and needs
+no preparation.
+
+To hand-manage the whole config instead of using environment variables,
+point `RELX_CONFIG_PATH=/path/to/your.config` at a plain `.config` file
+(no substitution happens there).
 
 ## Verify
 
