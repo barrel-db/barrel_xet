@@ -12,9 +12,15 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    {ok, Sup} = barrel_xet_sup:start_link(),
-    ok = autostart_server(),
-    {ok, Sup}.
+    case barrel_xet_sup:start_link() of
+        {ok, Sup} ->
+            case autostart_server() of
+                ok -> {ok, Sup};
+                {error, _Reason} = Error -> Error
+            end;
+        {error, _Reason} = Error ->
+            Error
+    end.
 
 stop(_State) ->
     ok.
@@ -22,8 +28,23 @@ stop(_State) ->
 autostart_server() ->
     case application:get_env(barrel_xet, server) of
         {ok, ServerConfig} when is_map(ServerConfig) ->
-            {ok, _} = xet_server:start_instance(ServerConfig),
-            ok;
+            start_configured(ServerConfig);
         _ ->
             ok
+    end.
+
+%% A release with a bad `server` env must fail its boot loudly: one log
+%% line per problem, then the application start stops.
+start_configured(ServerConfig) ->
+    case xet_server:start_instance(ServerConfig) of
+        {ok, _Pid} ->
+            ok;
+        {error, {invalid_config, Errors}} = Error ->
+            lists:foreach(
+                fun(Reason) -> logger:error("barrel_xet server config: ~ts", [Reason]) end,
+                Errors
+            ),
+            Error;
+        {error, _Reason} = Error ->
+            Error
     end.

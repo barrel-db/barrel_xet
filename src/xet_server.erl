@@ -12,8 +12,6 @@
 
 -behaviour(supervisor).
 
--define(DEFAULT_MAX_BODY, 83886080).
-
 %% Public entry: ensure the app is running, then start an instance.
 -spec start(map()) -> {ok, pid()} | {error, term()}.
 start(Config0) ->
@@ -22,19 +20,24 @@ start(Config0) ->
 
 %% Add a server instance under the (already running) app supervisor. Also
 %% used by barrel_xet_app to autostart a configured server on boot, where
-%% ensuring the app would deadlock.
+%% ensuring the app would deadlock. A config that fails validation is
+%% reported as {error, {invalid_config, [Reason]}} instead of a crash.
 -spec start_instance(map()) -> {ok, pid()} | {error, term()}.
 start_instance(Config0) ->
-    maybe_start_instrument(Config0),
-    Config = normalize(Config0),
-    Name = maps:get(name, Config),
-    Spec = #{
-        id => Name,
-        start => {?MODULE, start_link, [Config]},
-        restart => transient,
-        type => supervisor
-    },
-    supervisor:start_child(barrel_xet_sup, Spec).
+    case xet_config:load(Config0) of
+        {ok, Config} ->
+            maybe_start_instrument(Config),
+            Name = maps:get(name, Config),
+            Spec = #{
+                id => Name,
+                start => {?MODULE, start_link, [Config]},
+                restart => transient,
+                type => supervisor
+            },
+            supervisor:start_child(barrel_xet_sup, Spec);
+        {error, _Reason} = Error ->
+            Error
+    end.
 
 -spec stop(atom()) -> ok | {error, term()}.
 stop(Name) ->
@@ -89,27 +92,3 @@ maybe_start_instrument(#{observability := true}) ->
     ok;
 maybe_start_instrument(_Config) ->
     ok.
-
-normalize(Config) ->
-    DataDir = maps:get(data_dir, Config),
-    Defaults = #{
-        name => xet_server,
-        http => #{port => 0},
-        blob => {fs, #{dir => filename:join(DataDir, "xorbs")}},
-        namespaces => [<<"default">>, <<"default-merkledb">>],
-        max_body => ?DEFAULT_MAX_BODY,
-        %% Serialized xorb cap: 64 MiB of chunk payload plus headers and
-        %% footer headroom.
-        max_xorb_bytes => 71303168,
-        max_shard_bytes => 67108864,
-        spool_memory_max => 16777216,
-        url_ttl => 900,
-        %% Random per boot by default: presigned self URLs die on
-        %% restart, clients recover via 403 -> reconstruction re-query.
-        %% Set explicitly for stable URLs across restarts.
-        url_secret => crypto:strong_rand_bytes(32),
-        key_rotation_interval => 86400,
-        ratelimit => false,
-        concurrency => false
-    },
-    maps:merge(Defaults, Config).

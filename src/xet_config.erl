@@ -1,0 +1,241 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
+%% Server configuration: validation and defaults. load/1 turns a bad
+%% config into listed, actionable errors instead of a boot-time crash.
+%% Empty TLS cert/key or url_secret values (unset ${VAR} substitutions
+%% in a templated sys.config) are dropped so the blocks can always be
+%% present; empty auth tokens are fatal instead, so a missing token
+%% variable cannot silently authenticate nobody.
+-module(xet_config).
+
+-export([load/1]).
+
+-define(DEFAULT_MAX_BODY, 83886080).
+
+-define(KNOWN_KEYS, [
+    auth,
+    blob,
+    concurrency,
+    data_dir,
+    external_url,
+    host,
+    http,
+    http3,
+    https,
+    key_rotation_interval,
+    max_body,
+    max_shard_bytes,
+    max_xorb_bytes,
+    name,
+    namespaces,
+    observability,
+    ratelimit,
+    spool_memory_max,
+    url_secret,
+    url_ttl
+]).
+
+-spec load(term()) -> {ok, map()} | {error, {invalid_config, [binary()]}}.
+load(Config0) when is_map(Config0) ->
+    warn_unknown(Config0),
+    Config = drop_empty(Config0),
+    case validate(Config) of
+        [] -> {ok, defaults(Config)};
+        Errors -> {error, {invalid_config, Errors}}
+    end;
+load(_Other) ->
+    {error, {invalid_config, [<<"config must be a map">>]}}.
+
+%% Later tasks add knobs; a typo should surface loudly without failing
+%% configs written against a newer version.
+warn_unknown(Config) ->
+    case maps:keys(Config) -- ?KNOWN_KEYS of
+        [] -> ok;
+        Unknown -> logger:warning("xet_server config: ignoring unknown keys ~p", [Unknown])
+    end.
+
+drop_empty(Config) ->
+    lists:foldl(fun drop_empty/2, Config, [https, http3, url_secret]).
+
+drop_empty(url_secret, Config) ->
+    case maps:get(url_secret, Config, undefined) of
+        Empty when Empty =:= <<>>; Empty =:= "" -> maps:remove(url_secret, Config);
+        _ -> Config
+    end;
+drop_empty(Proto, Config) ->
+    case maps:get(Proto, Config, undefined) of
+        Listener when is_map(Listener) ->
+            Empty =
+                empty_value(maps:get(cert, Listener, missing)) orelse
+                    empty_value(maps:get(key, Listener, missing)),
+            case Empty of
+                true -> maps:remove(Proto, Config);
+                false -> Config
+            end;
+        _ ->
+            Config
+    end.
+
+empty_value(<<>>) -> true;
+empty_value("") -> true;
+empty_value(_) -> false.
+
+validate(Config) ->
+    lists:flatmap(fun(Check) -> Check(Config) end, [
+        fun check_data_dir/1,
+        fun check_auth/1,
+        fun check_listeners/1,
+        fun check_sizes/1,
+        fun check_ratelimit/1,
+        fun check_concurrency/1,
+        fun check_blob/1,
+        fun check_misc/1
+    ]).
+
+check_data_dir(#{data_dir := Dir}) when is_list(Dir), Dir =/= [] -> [];
+check_data_dir(#{data_dir := Dir}) when is_binary(Dir), Dir =/= <<>> -> [];
+check_data_dir(#{data_dir := _}) -> [<<"data_dir must be a non-empty path">>];
+check_data_dir(_Config) -> [<<"data_dir is required">>].
+
+check_auth(#{auth := {Mod, Opts}}) when is_atom(Mod) ->
+    case verify_exported(Mod) of
+        true -> check_static_tokens(Mod, Opts);
+        false -> [format("auth module ~ts does not export verify/3", [Mod])]
+    end;
+check_auth(#{auth := _}) ->
+    [<<"auth must be {Module, Opts}">>];
+check_auth(_Config) ->
+    [<<"auth is required">>].
+
+verify_exported(Mod) ->
+    case code:ensure_loaded(Mod) of
+        {module, Mod} -> erlang:function_exported(Mod, verify, 3);
+        _ -> false
+    end.
+
+check_static_tokens(xet_auth_static, #{tokens := Tokens}) when is_map(Tokens) ->
+    lists:flatmap(fun check_token/1, maps:to_list(Tokens));
+check_static_tokens(xet_auth_static, _Opts) ->
+    [<<"xet_auth_static needs #{tokens => #{Token => read | write}}">>];
+check_static_tokens(_Mod, _Opts) ->
+    [].
+
+check_token({Token, Scope}) ->
+    token_error(Token) ++ scope_error(Scope).
+
+token_error(<<>>) -> [<<"auth tokens must not be empty">>];
+token_error(Token) when is_binary(Token) -> [];
+token_error(Token) -> [format("auth token ~tp must be a binary", [Token])].
+
+scope_error(read) -> [];
+scope_error(write) -> [];
+scope_error(Scope) -> [format("auth scope ~tp is not read | write", [Scope])].
+
+check_listeners(Config) ->
+    lists:flatmap(
+        fun(Proto) -> check_listener(Proto, maps:get(Proto, Config, undefined)) end,
+        [http, https, http3]
+    ).
+
+check_listener(_Proto, undefined) -> [];
+check_listener(http, false) -> [];
+check_listener(Proto, Listener) when is_map(Listener) -> check_port(Proto, Listener);
+check_listener(Proto, _Other) -> [format("~ts listener must be a map", [Proto])].
+
+check_port(Proto, Listener) ->
+    case maps:get(port, Listener, 0) of
+        Port when is_integer(Port), Port >= 0, Port =< 65535 -> [];
+        Port -> [format("~ts port ~tp is not 0..65535", [Proto, Port])]
+    end.
+
+check_sizes(Config) ->
+    Positive = [max_body, max_xorb_bytes, max_shard_bytes, url_ttl, key_rotation_interval],
+    lists:flatmap(fun(Key) -> check_pos(Key, maps:get(Key, Config, undefined)) end, Positive) ++
+        check_non_neg(spool_memory_max, maps:get(spool_memory_max, Config, undefined)).
+
+check_pos(_Key, undefined) -> [];
+check_pos(_Key, N) when is_integer(N), N > 0 -> [];
+check_pos(Key, V) -> [format("~ts must be a positive integer, got ~tp", [Key, V])].
+
+check_non_neg(_Key, undefined) -> [];
+check_non_neg(_Key, N) when is_integer(N), N >= 0 -> [];
+check_non_neg(Key, V) -> [format("~ts must be a non-negative integer, got ~tp", [Key, V])].
+
+check_ratelimit(#{ratelimit := false}) ->
+    [];
+check_ratelimit(#{ratelimit := #{capacity := C, per_second := R}}) when
+    is_integer(C), C > 0, is_number(R), R > 0
+->
+    [];
+check_ratelimit(#{ratelimit := _}) ->
+    [<<"ratelimit must be false or #{capacity => N, per_second => Rate}">>];
+check_ratelimit(_Config) ->
+    [].
+
+check_concurrency(#{concurrency := false}) ->
+    [];
+check_concurrency(#{concurrency := Max}) when is_integer(Max), Max > 0 -> [];
+check_concurrency(#{concurrency := V}) ->
+    [format("concurrency must be false or a positive integer, got ~tp", [V])];
+check_concurrency(_Config) ->
+    [].
+
+check_blob(#{blob := {fs, #{dir := Dir}}}) when is_list(Dir); is_binary(Dir) -> [];
+check_blob(#{blob := {s3, Opts}}) when is_map(Opts) -> [];
+check_blob(#{blob := _}) -> [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>];
+check_blob(_Config) -> [].
+
+check_misc(Config) ->
+    check_name(maps:get(name, Config, undefined)) ++
+        check_secret(maps:get(url_secret, Config, undefined)) ++
+        check_namespaces(maps:get(namespaces, Config, undefined)) ++
+        check_flag(observability, maps:get(observability, Config, undefined)).
+
+check_name(undefined) -> [];
+check_name(Name) when is_atom(Name) -> [];
+check_name(V) -> [format("name must be an atom, got ~tp", [V])].
+
+check_secret(undefined) -> [];
+check_secret(Secret) when is_binary(Secret) -> [];
+check_secret(_V) -> [<<"url_secret must be a binary">>].
+
+check_namespaces(undefined) ->
+    [];
+check_namespaces(Namespaces) when is_list(Namespaces), Namespaces =/= [] ->
+    case lists:all(fun(Ns) -> is_binary(Ns) andalso Ns =/= <<>> end, Namespaces) of
+        true -> [];
+        false -> [<<"namespaces must be non-empty binaries">>]
+    end;
+check_namespaces(_V) ->
+    [<<"namespaces must be a non-empty list of binaries">>].
+
+check_flag(_Key, undefined) -> [];
+check_flag(_Key, Flag) when is_boolean(Flag) -> [];
+check_flag(Key, V) -> [format("~ts must be a boolean, got ~tp", [Key, V])].
+
+format(Fmt, Args) ->
+    iolist_to_binary(io_lib:format(Fmt, Args)).
+
+defaults(Config) ->
+    DataDir = maps:get(data_dir, Config),
+    Defaults = #{
+        name => xet_server,
+        http => #{port => 0},
+        blob => {fs, #{dir => filename:join(DataDir, "xorbs")}},
+        namespaces => [<<"default">>, <<"default-merkledb">>],
+        max_body => ?DEFAULT_MAX_BODY,
+        %% Serialized xorb cap: 64 MiB of chunk payload plus headers and
+        %% footer headroom.
+        max_xorb_bytes => 71303168,
+        max_shard_bytes => 67108864,
+        spool_memory_max => 16777216,
+        url_ttl => 900,
+        %% Random per boot by default: presigned self URLs die on
+        %% restart, clients recover via 403 -> reconstruction re-query.
+        %% Set explicitly for stable URLs across restarts.
+        url_secret => crypto:strong_rand_bytes(32),
+        key_rotation_interval => 86400,
+        ratelimit => false,
+        concurrency => false
+    },
+    maps:merge(Defaults, Config).

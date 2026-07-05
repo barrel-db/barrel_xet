@@ -13,7 +13,8 @@
     request_id_header/1,
     ratelimit/1,
     restart_survives_caller/1,
-    h2_tls_listener/1
+    h2_tls_listener/1,
+    invalid_config/1
 ]).
 
 all() ->
@@ -25,7 +26,8 @@ all() ->
         request_id_header,
         ratelimit,
         restart_survives_caller,
-        h2_tls_listener
+        h2_tls_listener,
+        invalid_config
     ].
 
 init_per_suite(Config) ->
@@ -151,6 +153,20 @@ h2_tls_listener(Config) ->
                 ok = xet_server:stop(xet_tls_server)
             end
     end.
+
+%% A bad config is a listed error, not a boot crash: every problem is
+%% reported at once so an operator fixes the file in one pass.
+invalid_config(Config) ->
+    {error, {invalid_config, Errors}} = xet_server:start(#{name => xet_bad_config}),
+    ?assert(lists:member(<<"data_dir is required">>, Errors)),
+    ?assert(lists:member(<<"auth is required">>, Errors)),
+    DataDir = filename:join(proplists:get_value(priv_dir, Config), "badcfg"),
+    {error, {invalid_config, Errors2}} = xet_server:start(#{
+        name => xet_bad_config,
+        data_dir => DataDir,
+        auth => {xet_auth_static, #{tokens => #{<<>> => write}}}
+    }),
+    ?assertEqual([<<"auth tokens must not be empty">>], Errors2).
 
 %% The instance runs under the application supervisor, so the process
 %% that called start/1 dying must not take the server down.

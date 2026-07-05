@@ -1,0 +1,153 @@
+%% SPDX-License-Identifier: Apache-2.0
+%% Copyright 2026 Benoit Chesneau
+-module(xet_config_tests).
+
+-include_lib("eunit/include/eunit.hrl").
+
+-define(AUTH, {xet_auth_static, #{tokens => #{<<"t">> => write}}}).
+
+valid(Extra) ->
+    maps:merge(#{data_dir => "/tmp/xet", auth => ?AUTH}, Extra).
+
+errors(Config) ->
+    {error, {invalid_config, Errors}} = xet_config:load(Config),
+    Errors.
+
+minimal_defaults_test() ->
+    {ok, Config} = xet_config:load(valid(#{})),
+    ?assertEqual(xet_server, maps:get(name, Config)),
+    ?assertEqual(#{port => 0}, maps:get(http, Config)),
+    ?assertEqual({fs, #{dir => "/tmp/xet/xorbs"}}, maps:get(blob, Config)),
+    ?assertEqual(900, maps:get(url_ttl, Config)),
+    ?assertEqual(false, maps:get(ratelimit, Config)),
+    ?assertEqual(false, maps:get(concurrency, Config)),
+    ?assertEqual(32, byte_size(maps:get(url_secret, Config))).
+
+explicit_values_survive_test() ->
+    {ok, Config} = xet_config:load(valid(#{url_ttl => 60, name => my_server})),
+    ?assertEqual(60, maps:get(url_ttl, Config)),
+    ?assertEqual(my_server, maps:get(name, Config)).
+
+not_a_map_test() ->
+    ?assertEqual(
+        {error, {invalid_config, [<<"config must be a map">>]}},
+        xet_config:load([])
+    ).
+
+missing_required_accumulates_test() ->
+    Errors = errors(#{}),
+    ?assert(lists:member(<<"data_dir is required">>, Errors)),
+    ?assert(lists:member(<<"auth is required">>, Errors)).
+
+bad_data_dir_test() ->
+    ?assertEqual(
+        [<<"data_dir must be a non-empty path">>], errors(#{data_dir => "", auth => ?AUTH})
+    ).
+
+auth_not_tuple_test() ->
+    ?assertEqual(
+        [<<"auth must be {Module, Opts}">>],
+        errors(#{data_dir => "/tmp/xet", auth => bearer})
+    ).
+
+auth_module_without_verify_test() ->
+    [Error] = errors(#{data_dir => "/tmp/xet", auth => {lists, #{}}}),
+    ?assertEqual(<<"auth module lists does not export verify/3">>, Error).
+
+empty_token_is_fatal_test() ->
+    Auth = {xet_auth_static, #{tokens => #{<<>> => write}}},
+    ?assertEqual(
+        [<<"auth tokens must not be empty">>],
+        errors(#{data_dir => "/tmp/xet", auth => Auth})
+    ).
+
+bad_scope_test() ->
+    Auth = {xet_auth_static, #{tokens => #{<<"t">> => admin_all}}},
+    [Error] = errors(#{data_dir => "/tmp/xet", auth => Auth}),
+    ?assertEqual(<<"auth scope admin_all is not read | write">>, Error).
+
+static_without_tokens_test() ->
+    [Error] = errors(#{data_dir => "/tmp/xet", auth => {xet_auth_static, #{}}}),
+    ?assertEqual(<<"xet_auth_static needs #{tokens => #{Token => read | write}}">>, Error).
+
+bad_port_test() ->
+    ?assertEqual(
+        [<<"http port 70000 is not 0..65535">>],
+        errors(valid(#{http => #{port => 70000}}))
+    ),
+    ?assertEqual(
+        [<<"https port -1 is not 0..65535">>],
+        errors(valid(#{https => #{port => -1, cert => "c.pem", key => "k.pem"}}))
+    ).
+
+listener_not_a_map_test() ->
+    ?assertEqual([<<"https listener must be a map">>], errors(valid(#{https => true}))).
+
+http_false_disables_cleartext_test() ->
+    {ok, Config} = xet_config:load(valid(#{http => false})),
+    ?assertEqual(false, maps:get(http, Config)).
+
+empty_tls_listener_dropped_test() ->
+    {ok, Config} = xet_config:load(
+        valid(#{https => #{port => 8443, cert => <<>>, key => <<"k.pem">>}})
+    ),
+    ?assertNot(maps:is_key(https, Config)),
+    {ok, Config2} = xet_config:load(
+        valid(#{http3 => #{port => 8443, cert => "c.pem", key => ""}})
+    ),
+    ?assertNot(maps:is_key(http3, Config2)).
+
+empty_url_secret_dropped_test() ->
+    {ok, Config} = xet_config:load(valid(#{url_secret => <<>>})),
+    %% Falls back to the random per-boot default.
+    ?assertEqual(32, byte_size(maps:get(url_secret, Config))).
+
+bad_sizes_test() ->
+    Errors = errors(valid(#{max_body => 0, url_ttl => -5, spool_memory_max => bad})),
+    ?assertEqual(3, length(Errors)),
+    ?assert(lists:member(<<"max_body must be a positive integer, got 0">>, Errors)).
+
+spool_zero_is_valid_test() ->
+    {ok, Config} = xet_config:load(valid(#{spool_memory_max => 0})),
+    ?assertEqual(0, maps:get(spool_memory_max, Config)).
+
+bad_ratelimit_test() ->
+    ?assertEqual(
+        [<<"ratelimit must be false or #{capacity => N, per_second => Rate}">>],
+        errors(valid(#{ratelimit => #{capacity => 2}}))
+    ).
+
+good_ratelimit_test() ->
+    {ok, _} = xet_config:load(valid(#{ratelimit => #{capacity => 2, per_second => 0.5}})).
+
+bad_concurrency_test() ->
+    ?assertEqual(
+        [<<"concurrency must be false or a positive integer, got 0">>],
+        errors(valid(#{concurrency => 0}))
+    ).
+
+bad_blob_test() ->
+    ?assertEqual(
+        [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>],
+        errors(valid(#{blob => {gcs, #{}}}))
+    ).
+
+bad_namespaces_test() ->
+    ?assertEqual(
+        [<<"namespaces must be a non-empty list of binaries">>],
+        errors(valid(#{namespaces => []}))
+    ),
+    ?assertEqual(
+        [<<"namespaces must be non-empty binaries">>],
+        errors(valid(#{namespaces => [<<"ok">>, ""]}))
+    ).
+
+bad_observability_test() ->
+    ?assertEqual(
+        [<<"observability must be a boolean, got sometimes">>],
+        errors(valid(#{observability => sometimes}))
+    ).
+
+unknown_keys_still_load_test() ->
+    {ok, Config} = xet_config:load(valid(#{frobnicate => 1})),
+    ?assertEqual(1, maps:get(frobnicate, Config)).

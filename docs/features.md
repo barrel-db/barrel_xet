@@ -60,9 +60,65 @@ standalone CAS server.
 - [x] T7.4 Server release packaging (relx)
 - [x] T7.5 Docs + v0.1.0 tag + CI wiring
 
-## Deferred beyond 0.1
+## Phase 8: Config + security (0.2.0)
 
-- Garbage collection of unreferenced xorbs, multi-node replication/HA
+- [x] T8.1 xet_config: validated configuration with listed errors
+- [ ] T8.2 Persist url_secret in metadata (survives restarts)
+- [ ] T8.3 Env-driven release config: sys.config.src + vm.args.src
+- [ ] T8.4 TLS first-class: boot validation, http3 PEM loading, rotation
+- [ ] T8.5 xet_auth_file: file tokens, reload, admin scope
+- [ ] T8.6 Request timeouts + security headers
+- [ ] T8.7 /data rate limiter keyed by signature
+
+## Phase 9: Observability (0.2.0)
+
+- [ ] T9.1 /metrics endpoint + observability on by default
+- [ ] T9.2 xet_metrics + ingest counters
+- [ ] T9.3 Store op histograms + chunk query counters
+- [ ] T9.4 Access log + session id + trace correlation
+- [ ] T9.5 Error logging on failure paths
+- [ ] T9.6 /readyz readiness checks
+- [ ] T9.7 Admin scaffold + GET /admin/stats
+- [ ] T9.8 Observability docs + logger config block
+
+## Phase 10: Storage lifecycle (0.2.0)
+
+- [ ] T10.1 Spool startup sweep
+- [ ] T10.2 Disk-full handling (507 + readiness)
+- [ ] T10.3 Reconstruction graceful missing-xorb
+- [ ] T10.4 S3 put retry: prove + document
+- [ ] T10.5 xorb created_at (schema evolution)
+- [ ] T10.6 Maintained counters (bytes, xorbs, files)
+- [ ] T10.7 Metadata fold + delete callbacks
+- [ ] T10.8 GC guard (registration/sweep exclusion)
+- [ ] T10.9 DELETE /admin/files/{hash}
+- [ ] T10.10 xet_gc: mark-and-sweep of unreferenced xorbs
+- [ ] T10.11 FS orphan-blob sweep
+- [ ] T10.12 Scrub: verify-at-rest
+- [ ] T10.13 Backup: rocksdb checkpoint + runbook
+- [ ] T10.14 rocksdb tuning passthrough
+
+## Phase 11: Lifecycle + packaging (0.2.0)
+
+- [ ] T11.1 Graceful drain on shutdown
+- [ ] T11.2 Dockerfile + compose
+- [ ] T11.3 Release workflow: tarball + GHCR image on tag
+- [ ] T11.4 Service integration: systemd + FreeBSD rc.d
+- [ ] T11.5 docs/production.md + deploy guide updates
+
+## Phase 12: Validation + release (0.2.0)
+
+- [ ] T12.1 Load/soak re-run + acceptance sweep
+- [ ] T12.2 HA design document (0.3.0 blueprint)
+- [ ] T12.3 v0.2.0 tag + release
+
+## Deferred beyond 0.2
+
+- Multi-node replication/HA implementation (0.3.0; design in T12.2)
+- S3 orphan-blob sweep, incremental backups (rocksdb backup engine)
+- JWT/OIDC auth, IP-keyed rate limiting (needs peer IP in livery)
 - Batch reconstructions, file-chunk-hashes endpoint (X-Range-Dirty)
 - multipart/byteranges data responses
 - Adaptive concurrency, HF Hub token exchange, barrel_docdb metadata backend
+- Multi-arch Docker images, FreeBSD CI builds and pkg(8) packages
+- CLI admin subcommands
