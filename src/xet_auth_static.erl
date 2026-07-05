@@ -1,7 +1,8 @@
 %% SPDX-License-Identifier: Apache-2.0
 %% Copyright 2026 Benoit Chesneau
-%% Static bearer tokens: #{tokens => #{TokenBinary => read | write}}.
-%% write implies read. Comparison is constant-time over token digests.
+%% Static bearer tokens: #{tokens => #{TokenBinary => read | write |
+%% admin}}. admin implies write implies read. Comparison is
+%% constant-time over token digests.
 -module(xet_auth_static).
 
 -behaviour(xet_auth).
@@ -25,6 +26,8 @@ find_token([{Token, Scope} | Rest], Digest) ->
         false -> find_token(Rest, Digest)
     end.
 
-check_scope(write, _Required) -> {ok, write};
-check_scope(read, read) -> {ok, read};
-check_scope(read, write) -> {error, forbidden}.
+check_scope(Held, Required) ->
+    case xet_auth:scope_covers(Held, Required) of
+        true -> {ok, Held};
+        false -> {error, forbidden}
+    end.

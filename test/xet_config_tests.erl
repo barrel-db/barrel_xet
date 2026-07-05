@@ -65,11 +65,26 @@ empty_token_is_fatal_test() ->
 bad_scope_test() ->
     Auth = {xet_auth_static, #{tokens => #{<<"t">> => admin_all}}},
     [Error] = errors(#{data_dir => "/tmp/xet", auth => Auth}),
-    ?assertEqual(<<"auth scope admin_all is not read | write">>, Error).
+    ?assertEqual(<<"auth scope admin_all is not read | write | admin">>, Error).
+
+admin_scope_is_valid_test() ->
+    Auth = {xet_auth_static, #{tokens => #{<<"root">> => admin}}},
+    {ok, _} = xet_config:load(#{data_dir => "/tmp/xet", auth => Auth}).
 
 static_without_tokens_test() ->
     [Error] = errors(#{data_dir => "/tmp/xet", auth => {xet_auth_static, #{}}}),
-    ?assertEqual(<<"xet_auth_static needs #{tokens => #{Token => read | write}}">>, Error).
+    ?assertEqual(
+        <<"xet_auth_static needs #{tokens => #{Token => read | write | admin}}">>, Error
+    ).
+
+auth_file_missing_is_fatal_test() ->
+    Auth = {xet_auth_file, #{path => "/nonexistent/xet-tokens"}},
+    [Error] = errors(#{data_dir => "/tmp/xet", auth => Auth}),
+    ?assertNotEqual(nomatch, binary:match(Error, <<"enoent">>)).
+
+auth_file_without_path_test() ->
+    [Error] = errors(#{data_dir => "/tmp/xet", auth => {xet_auth_file, #{}}}),
+    ?assertEqual(<<"xet_auth_file needs #{path => TokensFile}">>, Error).
 
 bad_port_test() ->
     ?assertEqual(

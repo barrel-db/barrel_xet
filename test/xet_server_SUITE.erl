@@ -14,7 +14,8 @@
     ratelimit/1,
     restart_survives_caller/1,
     h2_tls_listener/1,
-    invalid_config/1
+    invalid_config/1,
+    auth_file_reload/1
 ]).
 
 all() ->
@@ -27,7 +28,8 @@ all() ->
         ratelimit,
         restart_survives_caller,
         h2_tls_listener,
-        invalid_config
+        invalid_config,
+        auth_file_reload
     ].
 
 init_per_suite(Config) ->
@@ -167,6 +169,44 @@ invalid_config(Config) ->
         auth => {xet_auth_static, #{tokens => #{<<>> => write}}}
     }),
     ?assertEqual([<<"auth tokens must not be empty">>], Errors2).
+
+%% Tokens live in a file: appending one and reloading grants access
+%% without a restart, rewriting without it revokes the same way.
+auth_file_reload(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "authfile"),
+    ok = filelib:ensure_path(Dir),
+    TokensFile = filename:join(Dir, "tokens"),
+    ok = file:write_file(TokensFile, <<"boot-token write\n">>),
+    {ok, _} = xet_server:start(#{
+        name => xet_authfile_server,
+        data_dir => filename:join(Dir, "data"),
+        auth => {xet_auth_file, #{path => TokensFile}}
+    }),
+    try
+        Base = base_url(xet_authfile_server),
+        %% An authenticated read of an unknown file is 404; without a
+        %% valid token the same request is 401.
+        Probe = Base ++ "/api/v1/files/" ++ binary_to_list(binary:copy(<<"ab">>, 32)),
+        ?assertEqual(404, probe(Probe, <<"boot-token">>)),
+        ?assertEqual(401, probe(Probe, <<"second-token">>)),
+        %% Grant: append + reload.
+        ok = file:write_file(TokensFile, <<"boot-token write\nsecond-token read\n">>),
+        ok = xet_auth_file:reload(),
+        ?assertEqual(404, probe(Probe, <<"second-token">>)),
+        %% Revoke: rewrite without the boot token + reload.
+        ok = file:write_file(TokensFile, <<"second-token read\n">>),
+        ok = xet_auth_file:reload(),
+        ?assertEqual(401, probe(Probe, <<"boot-token">>)),
+        ?assertEqual(404, probe(Probe, <<"second-token">>))
+    after
+        ok = xet_server:stop(xet_authfile_server)
+    end.
+
+probe(Url, Token) ->
+    {ok, Status, _} = hackney:request(
+        head, Url, [{<<"authorization">>, <<"Bearer ", Token/binary>>}], <<>>, [{pool, false}]
+    ),
+    Status.
 
 %% The instance runs under the application supervisor, so the process
 %% that called start/1 dying must not take the server down.

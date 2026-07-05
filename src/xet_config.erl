@@ -99,7 +99,7 @@ check_data_dir(_Config) -> [<<"data_dir is required">>].
 
 check_auth(#{auth := {Mod, Opts}}) when is_atom(Mod) ->
     case verify_exported(Mod) of
-        true -> check_static_tokens(Mod, Opts);
+        true -> check_auth_opts(Mod, Opts);
         false -> [format("auth module ~ts does not export verify/3", [Mod])]
     end;
 check_auth(#{auth := _}) ->
@@ -113,11 +113,27 @@ verify_exported(Mod) ->
         _ -> false
     end.
 
-check_static_tokens(xet_auth_static, #{tokens := Tokens}) when is_map(Tokens) ->
+check_auth_opts(xet_auth_static, #{tokens := Tokens}) when is_map(Tokens) ->
     lists:flatmap(fun check_token/1, maps:to_list(Tokens));
-check_static_tokens(xet_auth_static, _Opts) ->
-    [<<"xet_auth_static needs #{tokens => #{Token => read | write}}">>];
-check_static_tokens(_Mod, _Opts) ->
+check_auth_opts(xet_auth_static, _Opts) ->
+    [<<"xet_auth_static needs #{tokens => #{Token => read | write | admin}}">>];
+%% Fail closed at boot: an unreadable or unparsable tokens file is a
+%% config error, not a server that rejects everyone at runtime. Loading
+%% here also publishes the token set, so the first request never pays
+%% for it.
+check_auth_opts(xet_auth_file, #{path := Path}) when is_list(Path); is_binary(Path) ->
+    case xet_auth_file:load(Path) of
+        {ok, 0} ->
+            logger:warning("xet_server config: tokens file ~ts has no tokens", [Path]),
+            [];
+        {ok, _Count} ->
+            [];
+        {error, Reasons} ->
+            Reasons
+    end;
+check_auth_opts(xet_auth_file, _Opts) ->
+    [<<"xet_auth_file needs #{path => TokensFile}">>];
+check_auth_opts(_Mod, _Opts) ->
     [].
 
 check_token({Token, Scope}) ->
@@ -129,7 +145,8 @@ token_error(Token) -> [format("auth token ~tp must be a binary", [Token])].
 
 scope_error(read) -> [];
 scope_error(write) -> [];
-scope_error(Scope) -> [format("auth scope ~tp is not read | write", [Scope])].
+scope_error(admin) -> [];
+scope_error(Scope) -> [format("auth scope ~tp is not read | write | admin", [Scope])].
 
 check_listeners(Config) ->
     lists:flatmap(

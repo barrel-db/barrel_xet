@@ -66,7 +66,7 @@ standalone CAS server.
 - [x] T8.2 Persist url_secret in metadata (survives restarts)
 - [ ] T8.3 Env-driven release config: sys.config.src + vm.args.src
 - [ ] T8.4 TLS first-class: boot validation, http3 PEM loading, rotation
-- [ ] T8.5 xet_auth_file: file tokens, reload, admin scope
+- [x] T8.5 xet_auth_file: file tokens, reload, admin scope
 - [ ] T8.6 Request timeouts + security headers
 - [ ] T8.7 /data rate limiter keyed by signature
 
