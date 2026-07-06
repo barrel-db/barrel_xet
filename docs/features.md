@@ -83,7 +83,7 @@ standalone CAS server.
 
 ## Phase 10: Storage lifecycle (0.2.0)
 
-- [ ] T10.1 Spool startup sweep
+- [x] T10.1 Spool startup sweep
 - [ ] T10.2 Disk-full handling (507 + readiness)
 - [ ] T10.3 Reconstruction graceful missing-xorb
 - [ ] T10.4 S3 put retry: prove + document
@@ -92,11 +92,11 @@ standalone CAS server.
 - [ ] T10.7 Metadata fold + delete callbacks
 - [ ] T10.8 GC guard (registration/sweep exclusion)
 - [ ] T10.9 DELETE /admin/files/{hash}
-- [ ] T10.10 xet_gc: mark-and-sweep of unreferenced xorbs
-- [ ] T10.11 FS orphan-blob sweep
-- [ ] T10.12 Scrub: verify-at-rest
-- [ ] T10.13 Backup: rocksdb checkpoint + runbook
-- [ ] T10.14 rocksdb tuning passthrough
+- [x] T10.10 xet_gc: mark-and-sweep of unreferenced xorbs
+- [x] T10.11 FS orphan-blob sweep
+- [x] T10.12 Scrub: verify-at-rest
+- [x] T10.13 Backup: rocksdb checkpoint + runbook
+- [x] T10.14 rocksdb tuning passthrough
 
 ## Phase 11: Lifecycle + packaging (0.2.0)
 

@@ -29,9 +29,11 @@ start_link(Config) ->
 -spec init(map()) -> {ok, state()} | {stop, term()}.
 init(#{name := Name} = Config0) ->
     process_flag(trap_exit, true),
-    MetaDir = filename:join(maps:get(data_dir, Config0), "metadata"),
+    DataDir = maps:get(data_dir, Config0),
+    MetaDir = filename:join(DataDir, "metadata"),
     maybe
         ok ?= filelib:ensure_path(MetaDir),
+        sweep_spool(filename:join(DataDir, "spool")),
         {ok, Metadata} ?= open_metadata(MetaDir, ?OPEN_RETRIES),
         {ok, Blob} ?= open_blob(Config0),
         {ok, Config} ?= resolve_url_secret(Config0, Metadata),
@@ -42,6 +44,20 @@ init(#{name := Name} = Config0) ->
         {error, Reason} ->
             logger:error("barrel_xet stores failed to open under ~ts: ~p", [MetaDir, Reason]),
             {stop, Reason}
+    end.
+
+%% A crash between spool-file creation and its per-request cleanup
+%% leaves an orphan upload.*.tmp. The listener starts after this process
+%% (rest_for_one: stores -> keys -> listener), so no upload is in flight
+%% and stale spool files can be reclaimed. Best-effort: a delete failure
+%% does not block boot.
+sweep_spool(SpoolDir) ->
+    case filelib:wildcard(filename:join(SpoolDir, "upload.*.tmp")) of
+        [] ->
+            ok;
+        Stale ->
+            lists:foreach(fun(F) -> _ = file:delete(F) end, Stale),
+            logger:info("swept ~b stale spool file(s) from ~ts", [length(Stale), SpoolDir])
     end.
 
 %% Only lock contention is worth retrying: a predecessor's LOCK file is

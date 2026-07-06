@@ -26,7 +26,8 @@
     access_log_session_id/1,
     storage_error_logged/1,
     readyz/1,
-    admin_stats/1
+    admin_stats/1,
+    spool_startup_sweep/1
 ]).
 
 all() ->
@@ -49,7 +50,8 @@ all() ->
         access_log_session_id,
         storage_error_logged,
         readyz,
-        admin_stats
+        admin_stats,
+        spool_startup_sweep
     ].
 
 init_per_suite(Config) ->
@@ -308,6 +310,28 @@ recv_access_event(Timeout) ->
             recv_access_event(Timeout)
     after Timeout ->
         error(no_access_event)
+    end.
+
+%% Boot reclaims orphaned upload.*.tmp spool files left by a crash,
+%% while leaving unrelated files alone.
+spool_startup_sweep(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "spoolsweep"),
+    Spool = filename:join(Dir, "spool"),
+    ok = filelib:ensure_path(Spool),
+    Stale = filename:join(Spool, "upload.999.tmp"),
+    Keep = filename:join(Spool, "keep.txt"),
+    ok = file:write_file(Stale, <<"orphan">>),
+    ok = file:write_file(Keep, <<"keep">>),
+    {ok, _} = xet_server:start(#{
+        name => xet_spoolsweep_server,
+        data_dir => Dir,
+        auth => {xet_auth_static, #{tokens => #{}}}
+    }),
+    try
+        ?assertNot(filelib:is_regular(Stale)),
+        ?assert(filelib:is_regular(Keep))
+    after
+        ok = xet_server:stop(xet_spoolsweep_server)
     end.
 
 %% /admin/stats needs the admin scope and is mounted only when enabled:
