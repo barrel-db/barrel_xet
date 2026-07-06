@@ -19,7 +19,8 @@
     tls_misconfig/1,
     h3_listener/1,
     h2_cert_rotation/1,
-    security_headers/1
+    security_headers/1,
+    metrics_endpoint/1
 ]).
 
 all() ->
@@ -37,7 +38,8 @@ all() ->
         tls_misconfig,
         h3_listener,
         h2_cert_rotation,
-        security_headers
+        security_headers,
+        metrics_endpoint
     ].
 
 init_per_suite(Config) ->
@@ -268,6 +270,40 @@ security_headers(Config) ->
     ?assertEqual(<<"DENY">>, proplists:get_value(<<"x-frame-options">>, Headers)),
     ?assertEqual(<<"no-referrer">>, proplists:get_value(<<"referrer-policy">>, Headers)),
     ?assertEqual(undefined, proplists:get_value(<<"strict-transport-security">>, Headers)).
+
+%% /metrics serves the instrument registry in Prometheus text format,
+%% under the read scope (metrics leak paths and volumes). This also
+%% pins the exposition name mangling of the HTTP duration histogram.
+metrics_endpoint(Config) ->
+    {S1, _, _} = get_(base(Config) ++ "/metrics", []),
+    ?assertEqual(401, S1),
+    %% A prior request guarantees the histogram exists before scraping.
+    {200, _, _} = get_(base(Config) ++ "/healthz", []),
+    Auth = [{<<"authorization">>, <<"Bearer read-token">>}],
+    {200, Headers, Body} = get_(base(Config) ++ "/metrics", Auth),
+    ?assertNotEqual(
+        nomatch, binary:match(proplists:get_value(<<"content-type">>, Headers), <<"text/plain">>)
+    ),
+    %% instrument keeps OTel semantic-convention names verbatim (dots
+    %% intact; Prometheus 3.x scrapes UTF-8 names).
+    ?assertNotEqual(nomatch, binary:match(Body, <<"http.server.request.duration">>)),
+    %% metrics => false removes the route entirely.
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "nometrics"),
+    {ok, _} = xet_server:start(#{
+        name => xet_nometrics_server,
+        data_dir => Dir,
+        metrics => false,
+        auth => {xet_auth_static, #{tokens => #{<<"t">> => read}}}
+    }),
+    try
+        {S2, _, _} = get_(
+            base_url(xet_nometrics_server) ++ "/metrics",
+            [{<<"authorization">>, <<"Bearer t">>}]
+        ),
+        ?assertEqual(404, S2)
+    after
+        ok = xet_server:stop(xet_nometrics_server)
+    end.
 
 gen_cert(Dir, Base) ->
     ok = filelib:ensure_path(Dir),

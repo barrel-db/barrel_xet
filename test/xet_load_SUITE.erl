@@ -114,7 +114,16 @@ observability_enabled(Config) ->
         Client = xet_client:new(#{endpoint => list_to_binary(Base), token => ?TOKEN}),
         Data = xet_test_vectors:splitmix64_data(200000, 7),
         {ok, #{file_hash := Hash}} = xet_client_upload:upload_data(Client, obs, Data),
-        ?assertEqual({ok, Data}, xet_client_download:download_data(Client, Hash))
+        ?assertEqual({ok, Data}, xet_client_download:download_data(Client, Hash)),
+        %% The roundtrip above was recorded: the scrape proves it.
+        {ok, 200, _, Metrics} = hackney:request(
+            get,
+            Base ++ "/metrics",
+            [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
+            <<>>,
+            [with_body, {pool, false}]
+        ),
+        ?assertNotEqual(nomatch, binary:match(Metrics, <<"http.server.request.duration">>))
     after
         ok = xet_server:stop(xet_obs_server)
     end.

@@ -28,12 +28,21 @@ compile(Config) ->
     Prefixed =
         prefix_routes([<<"/api/v1">>, <<"/v1">>], V1, Deadline, Limiter) ++
             prefix_routes([<<"/api/v2">>, <<"/v2">>], V2, Deadline, Limiter),
-    livery_router:compile([
-        {<<"GET">>, <<"/healthz">>, fun health/1, route_meta(<<"GET">>, Deadline)},
-        %% xet-core posts shards to the bare path.
-        {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1}
-        | Prefixed
-    ]).
+    livery_router:compile(
+        [
+            {<<"GET">>, <<"/healthz">>, fun health/1, route_meta(<<"GET">>, Deadline)},
+            %% xet-core posts shards to the bare path.
+            {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1}
+        ] ++ metrics_route(Config, Deadline) ++ Prefixed
+    ).
+
+%% Prometheus exposition of the instrument registry. Not exempt from
+%% auth: metrics leak paths and volumes, so scrapers present a read
+%% token.
+metrics_route(#{metrics := true}, Deadline) ->
+    [{<<"GET">>, <<"/metrics">>, livery_metrics:handler(), route_meta(<<"GET">>, Deadline)}];
+metrics_route(_Config, _Deadline) ->
+    [].
 
 prefix_routes(Prefixes, Routes, Deadline, Limiter) ->
     [

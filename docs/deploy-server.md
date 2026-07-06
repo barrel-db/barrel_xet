@@ -92,6 +92,16 @@ To hand-manage the whole config instead of using environment variables,
 point `RELX_CONFIG_PATH=/path/to/your.config` at a plain `.config` file
 (no substitution happens there).
 
+## Metrics
+
+`GET /metrics` serves Prometheus text format; scrape it with a read
+token (`Authorization: Bearer ...`). HTTP metrics record out of the
+box. To push OTLP instead, set the standard `OTEL_*` environment
+variables (for example `OTEL_METRICS_EXPORTER=otlp` and
+`OTEL_EXPORTER_OTLP_ENDPOINT`); the instrument app picks them up on
+boot with no configuration. Set `metrics => false` in the server map
+to remove the endpoint.
+
 ## Verify
 
 ```sh
