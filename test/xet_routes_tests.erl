@@ -43,3 +43,19 @@ upload_routes_have_no_deadline_test() ->
 disabled_timeout_test() ->
     R = router(#{request_timeout => false}),
     ?assertEqual(undefined, meta(<<"GET">>, <<"/healthz">>, R)).
+
+data_route_gets_its_own_limiter_test() ->
+    R = router(#{data_ratelimit => #{capacity => 2, per_second => 1.0}}),
+    Hash = binary:copy(<<"ab">>, 32),
+    Path = <<"/api/v1/xorbs/default/", Hash/binary, "/data">>,
+    #{middleware := [{livery_ratelimit, Limiter}, {livery_timeout, _}]} =
+        meta(<<"GET">>, Path, R),
+    ?assertEqual(xet_data_ratelimit, maps:get(name, Limiter)),
+    %% Other GET routes are untouched by the data limiter.
+    #{middleware := [{livery_timeout, _}]} = meta(<<"GET">>, <<"/healthz">>, R).
+
+data_route_without_limiter_test() ->
+    R = router(#{}),
+    Hash = binary:copy(<<"ab">>, 32),
+    Path = <<"/v1/xorbs/default/", Hash/binary, "/data">>,
+    #{middleware := [{livery_timeout, _}]} = meta(<<"GET">>, Path, R).

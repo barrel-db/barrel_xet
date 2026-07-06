@@ -137,6 +137,14 @@ bad_ratelimit_test() ->
 good_ratelimit_test() ->
     {ok, _} = xet_config:load(valid(#{ratelimit => #{capacity => 2, per_second => 0.5}})).
 
+bad_data_ratelimit_test() ->
+    ?assertEqual(
+        [<<"data_ratelimit must be false or #{capacity => N, per_second => Rate}">>],
+        errors(valid(#{data_ratelimit => #{per_second => 1.0}}))
+    ),
+    {ok, Config} = xet_config:load(valid(#{})),
+    ?assertEqual(false, maps:get(data_ratelimit, Config)).
+
 bad_concurrency_test() ->
     ?assertEqual(
         [<<"concurrency must be false or a positive integer, got 0">>],

@@ -17,6 +17,7 @@
     blob,
     concurrency,
     data_dir,
+    data_ratelimit,
     external_url,
     host,
     http,
@@ -275,16 +276,20 @@ check_non_neg(_Key, undefined) -> [];
 check_non_neg(_Key, N) when is_integer(N), N >= 0 -> [];
 check_non_neg(Key, V) -> [format("~ts must be a non-negative integer, got ~tp", [Key, V])].
 
-check_ratelimit(#{ratelimit := false}) ->
+check_ratelimit(Config) ->
+    check_bucket(ratelimit, maps:get(ratelimit, Config, undefined)) ++
+        check_bucket(data_ratelimit, maps:get(data_ratelimit, Config, undefined)).
+
+check_bucket(_Key, undefined) ->
     [];
-check_ratelimit(#{ratelimit := #{capacity := C, per_second := R}}) when
+check_bucket(_Key, false) ->
+    [];
+check_bucket(_Key, #{capacity := C, per_second := R}) when
     is_integer(C), C > 0, is_number(R), R > 0
 ->
     [];
-check_ratelimit(#{ratelimit := _}) ->
-    [<<"ratelimit must be false or #{capacity => N, per_second => Rate}">>];
-check_ratelimit(_Config) ->
-    [].
+check_bucket(Key, _V) ->
+    [format("~ts must be false or #{capacity => N, per_second => Rate}", [Key])].
 
 check_concurrency(#{concurrency := false}) ->
     [];
@@ -367,6 +372,10 @@ defaults(Config) ->
         %% generates and persists one), so signed URLs survive restarts.
         key_rotation_interval => 86400,
         ratelimit => false,
+        %% Off by default: per-signed-URL buckets on /data (see
+        %% xet_routes) are amplification bounds, not IP flood
+        %% protection, which belongs to the LB or proxy in front.
+        data_ratelimit => false,
         concurrency => false,
         %% Deadline on GET/HEAD handlers only: upload routes stream
         %% their request bodies (incompatible with the timeout worker)

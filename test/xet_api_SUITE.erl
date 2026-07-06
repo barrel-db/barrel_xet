@@ -34,6 +34,7 @@
     data_forbidden/1,
     data_errors/1,
     url_secret_survives_restart/1,
+    data_ratelimited_per_url/1,
     chunk_dedup_flow/1,
     chunk_miss/1,
     key_rotation/1
@@ -71,6 +72,7 @@ all() ->
         data_forbidden,
         data_errors,
         url_secret_survives_restart,
+        data_ratelimited_per_url,
         chunk_dedup_flow,
         chunk_miss,
         key_rotation
@@ -624,6 +626,43 @@ url_secret_survives_restart(Config) ->
         {403, _, _} = raw_get(data_url(xet_secret_server, HashStr, Exp, Sig), [])
     after
         ok = xet_server:stop(xet_secret_server)
+    end.
+
+%% Each signed URL gets its own bucket: hammering one URL trips 429
+%% while a second URL for the same xorb still serves, and sig-less
+%% requests pass the limiter to die on the handler's 403.
+data_ratelimited_per_url(Config) ->
+    DataDir = filename:join(proplists:get_value(priv_dir, Config), "dratelimit"),
+    {ok, _} = xet_server:start(#{
+        name => xet_drl_server,
+        data_dir => DataDir,
+        data_ratelimit => #{capacity => 2, per_second => 0.001},
+        auth => {xet_auth_static, #{tokens => #{?TOKEN => write}}}
+    }),
+    try
+        Enc = sample_xorb([95, 96]),
+        HashStr = xet_hash:to_string(maps:get(hash, Enc)),
+        Base = "http://127.0.0.1:" ++ integer_to_list(xet_server:port(xet_drl_server)),
+        {200, _} = post_xorb(Base, path_for(Enc), maps:get(bin, Enc)),
+        Secret = maps:get(url_secret, maps:get(config, xet_server:env(xet_drl_server))),
+        Exp1 = erlang:system_time(second) + 600,
+        Exp2 = Exp1 + 1,
+        Url1 = data_url(
+            xet_drl_server, HashStr, Exp1, xet_url_signer:sign(Secret, <<"default">>, HashStr, Exp1)
+        ),
+        Url2 = data_url(
+            xet_drl_server, HashStr, Exp2, xet_url_signer:sign(Secret, <<"default">>, HashStr, Exp2)
+        ),
+        Statuses = [element(1, raw_get(Url1, [])) || _ <- lists:seq(1, 5)],
+        ?assertEqual(200, hd(Statuses)),
+        ?assert(lists:member(429, Statuses)),
+        %% A different signed URL is its own bucket.
+        {200, _, _} = raw_get(Url2, []),
+        %% No signature: the limiter passes, the handler rejects.
+        Bare = hd(binary:split(Url1, <<"?">>)),
+        {403, _, _} = raw_get(Bare, [])
+    after
+        ok = xet_server:stop(xet_drl_server)
     end.
 
 data_url(Name, HashStr, Exp, Sig) ->

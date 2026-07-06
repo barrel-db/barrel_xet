@@ -12,21 +12,22 @@
 -spec compile(map()) -> livery_router:router().
 compile(Config) ->
     Deadline = maps:get(request_timeout, Config, false),
+    Limiter = data_limiter(maps:get(data_ratelimit, Config, false)),
     V1 = [
         {<<"POST">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:upload/1},
         {<<"HEAD">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:head/1},
         {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1},
         {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v1/1},
         {<<"HEAD">>, <<"/files/:hash">>, fun xet_h_reconstructions:head_file/1},
-        {<<"GET">>, <<"/xorbs/:ns/:hash/data">>, fun xet_h_data:get/1},
+        {<<"GET">>, <<"/xorbs/:ns/:hash/data">>, fun xet_h_data:get/1, data},
         {<<"GET">>, <<"/chunks/:ns/:hash">>, fun xet_h_chunks:get/1}
     ],
     V2 = [
         {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v2/1}
     ],
     Prefixed =
-        prefix_routes([<<"/api/v1">>, <<"/v1">>], V1, Deadline) ++
-            prefix_routes([<<"/api/v2">>, <<"/v2">>], V2, Deadline),
+        prefix_routes([<<"/api/v1">>, <<"/v1">>], V1, Deadline, Limiter) ++
+            prefix_routes([<<"/api/v2">>, <<"/v2">>], V2, Deadline, Limiter),
     livery_router:compile([
         {<<"GET">>, <<"/healthz">>, fun health/1, route_meta(<<"GET">>, Deadline)},
         %% xet-core posts shards to the bare path.
@@ -34,12 +35,21 @@ compile(Config) ->
         | Prefixed
     ]).
 
-prefix_routes(Prefixes, Routes, Deadline) ->
+prefix_routes(Prefixes, Routes, Deadline, Limiter) ->
     [
-        {Method, <<Prefix/binary, Pattern/binary>>, Handler, route_meta(Method, Deadline)}
+        {Method, <<Prefix/binary, Pattern/binary>>, Handler, entry_meta(Route, Deadline, Limiter)}
      || Prefix <- Prefixes,
-        {Method, Pattern, Handler} <- Routes
+        Route <- Routes,
+        {Method, Pattern, Handler} <- [route_parts(Route)]
     ].
+
+route_parts({Method, Pattern, Handler}) -> {Method, Pattern, Handler};
+route_parts({Method, Pattern, Handler, data}) -> {Method, Pattern, Handler}.
+
+entry_meta({Method, _Pattern, _Handler}, Deadline, _Limiter) ->
+    route_meta(Method, Deadline);
+entry_meta({_Method, _Pattern, _Handler, data}, Deadline, Limiter) ->
+    data_meta(Deadline, Limiter).
 
 %% Deadline on the read surface only. Upload handlers stream their
 %% request bodies, which livery_timeout's worker cannot receive (chunks
@@ -47,12 +57,47 @@ prefix_routes(Prefixes, Routes, Deadline) ->
 %% inactivity bound instead. /data responses return a file descriptor
 %% the listener streams after the handler returns, so the deadline
 %% bounds handler time, not transfer time.
-route_meta(<<"GET">>, Ms) when is_integer(Ms) -> deadline_meta(Ms);
-route_meta(<<"HEAD">>, Ms) when is_integer(Ms) -> deadline_meta(Ms);
+route_meta(<<"GET">>, Ms) when is_integer(Ms) -> wrap_meta(deadline_list(Ms));
+route_meta(<<"HEAD">>, Ms) when is_integer(Ms) -> wrap_meta(deadline_list(Ms));
 route_meta(_Method, _Deadline) -> undefined.
 
-deadline_meta(Ms) ->
-    #{middleware => [{livery_timeout, #{after_ms => Ms}}]}.
+data_meta(Deadline, undefined) ->
+    route_meta(<<"GET">>, Deadline);
+data_meta(Deadline, Limiter) ->
+    wrap_meta([{livery_ratelimit, Limiter} | deadline_list(Deadline)]).
+
+deadline_list(Ms) when is_integer(Ms) -> [{livery_timeout, #{after_ms => Ms}}];
+deadline_list(_Deadline) -> [].
+
+wrap_meta([]) -> undefined;
+wrap_meta(Middleware) -> #{middleware => Middleware}.
+
+%% The bearer-exempt /data endpoint gets its own limiter, one bucket
+%% per signed URL: a leaked URL's egress is bounded without throttling
+%% anything else. Sig-less requests pass the limiter and are rejected
+%% by the handler (403) before any disk read. The fixed name keeps one
+%% shared bucket table across router rebuilds.
+data_limiter(false) ->
+    undefined;
+data_limiter(Opts) when is_map(Opts) ->
+    Extra = maps:without([capacity, per_second], Opts),
+    Merged = maps:merge(#{name => xet_data_ratelimit, key => fun data_sig_key/1}, Extra),
+    livery_ratelimit:limiter(
+        maps:get(capacity, Opts),
+        maps:get(per_second, Opts),
+        Merged
+    ).
+
+data_sig_key(Req) ->
+    case uri_string:dissect_query(livery_req:query(Req)) of
+        Query when is_list(Query) ->
+            case proplists:get_value("sig", Query, proplists:get_value(<<"sig">>, Query)) of
+                undefined -> undefined;
+                Sig -> iolist_to_binary(Sig)
+            end;
+        _ ->
+            undefined
+    end.
 
 health(_Req) ->
     livery_resp:json(200, json:encode(#{status => <<"ok">>})).

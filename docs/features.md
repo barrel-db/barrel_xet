@@ -68,7 +68,7 @@ standalone CAS server.
 - [x] T8.4 TLS first-class: boot validation, http3 PEM loading, rotation
 - [x] T8.5 xet_auth_file: file tokens, reload, admin scope
 - [x] T8.6 Request timeouts + security headers
-- [ ] T8.7 /data rate limiter keyed by signature
+- [x] T8.7 /data rate limiter keyed by signature
 
 ## Phase 9: Observability (0.2.0)
 
