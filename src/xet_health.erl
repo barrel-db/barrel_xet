@@ -16,6 +16,7 @@ readyz(Config) ->
     livery_health:ready([
         {<<"metadata">>, fun() -> metadata(Name) end},
         {<<"blob">>, fun() -> blob(Name) end},
+        {<<"disk">>, fun() -> disk(Name) end},
         {<<"keys">>, fun() -> keys(Name) end}
     ]).
 
@@ -43,6 +44,18 @@ fs_root(#{blob := {fs, #{dir := Root}}}) ->
     end;
 fs_root(_Config) ->
     ok.
+
+%% Unavailable once free space on the data dir falls below the same
+%% margin that gates uploads, so a full node is drained before it starts
+%% rejecting writes.
+disk(Name) ->
+    #{config := Config} = xet_server:env(Name),
+    DataDir = maps:get(data_dir, Config),
+    MinFree = maps:get(min_free_bytes, Config),
+    case xet_disk:has_room(DataDir, MinFree) of
+        true -> ok;
+        false -> {error, low_disk}
+    end.
 
 keys(Name) ->
     _ = xet_keys:current(Name),

@@ -84,7 +84,7 @@ standalone CAS server.
 ## Phase 10: Storage lifecycle (0.2.0)
 
 - [x] T10.1 Spool startup sweep
-- [ ] T10.2 Disk-full handling (507 + readiness)
+- [x] T10.2 Disk-full handling (507 + readiness)
 - [ ] T10.3 Reconstruction graceful missing-xorb
 - [ ] T10.4 S3 put retry: prove + document
 - [ ] T10.5 xorb created_at (schema evolution)

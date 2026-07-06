@@ -25,15 +25,21 @@ upload_checked(Req, Env, Ns, Hash) ->
             xet_metrics:count(<<"xet.xorbs.dedup_hits">>, 1),
             reply_inserted(false);
         false ->
-            SpoolOpts = #{
-                cap => maps:get(max_xorb_bytes, Config),
-                memory_max => maps:get(spool_memory_max, Config),
-                spool_dir => filename:join(maps:get(data_dir, Config), "spool")
-            },
-            case xet_http_body:read_spooled(Req, SpoolOpts) of
-                {ok, Spooled} -> validate_and_commit(Env, Ns, Hash, Spooled);
-                {error, Reason} -> xet_routes:error_response(400, Reason)
+            case xet_h_upload:preflight(Config, max_xorb_bytes) of
+                ok -> read_and_commit(Req, Env, Ns, Hash, Config);
+                {error, Resp} -> Resp
             end
+    end.
+
+read_and_commit(Req, Env, Ns, Hash, Config) ->
+    SpoolOpts = #{
+        cap => maps:get(max_xorb_bytes, Config),
+        memory_max => maps:get(spool_memory_max, Config),
+        spool_dir => filename:join(maps:get(data_dir, Config), "spool")
+    },
+    case xet_http_body:read_spooled(Req, SpoolOpts) of
+        {ok, Spooled} -> validate_and_commit(Env, Ns, Hash, Spooled);
+        {error, Reason} -> xet_routes:error_response(400, Reason)
     end.
 
 validate_and_commit(Env, Ns, Hash, Spooled) ->
@@ -74,7 +80,7 @@ commit(#{metadata := Metadata, blob := Blob}, Ns, Hash, Bin, Decoded) ->
                 "xorb commit failed for ~ts/~ts: ~p",
                 [Ns, xet_hash:to_string(Hash), Reason]
             ),
-            xet_routes:error_response(500, <<"storage_error">>)
+            xet_h_upload:storage_error(Reason)
     end.
 
 head(Req) ->

@@ -16,6 +16,12 @@
 upload(Req) ->
     Env = xet_server:env(livery_req:config(server, Req)),
     #{config := Config} = Env,
+    case xet_h_upload:preflight(Config, max_shard_bytes) of
+        ok -> read_and_register(Req, Env, Config);
+        {error, Resp} -> Resp
+    end.
+
+read_and_register(Req, Env, Config) ->
     SpoolOpts = #{
         cap => maps:get(max_shard_bytes, Config),
         memory_max => maps:get(spool_memory_max, Config),
@@ -137,7 +143,7 @@ register_shard(#{metadata := Metadata}, Files, Cas, Xorbs) ->
             livery_resp:json(200, json:encode(#{result => Result}));
         {error, Reason} ->
             logger:error("shard registration failed: ~p", [Reason]),
-            xet_routes:error_response(500, <<"storage_error">>)
+            xet_h_upload:storage_error(Reason)
     end.
 
 file_meta(File) ->

@@ -30,6 +30,7 @@
     max_shard_bytes,
     max_xorb_bytes,
     metrics,
+    min_free_bytes,
     name,
     namespaces,
     observability,
@@ -269,8 +270,9 @@ check_port(Proto, Listener) ->
 
 check_sizes(Config) ->
     Positive = [max_body, max_xorb_bytes, max_shard_bytes, url_ttl, key_rotation_interval],
+    NonNeg = [spool_memory_max, min_free_bytes],
     lists:flatmap(fun(Key) -> check_pos(Key, maps:get(Key, Config, undefined)) end, Positive) ++
-        check_non_neg(spool_memory_max, maps:get(spool_memory_max, Config, undefined)).
+        lists:flatmap(fun(Key) -> check_non_neg(Key, maps:get(Key, Config, undefined)) end, NonNeg).
 
 check_pos(_Key, undefined) -> [];
 check_pos(_Key, N) when is_integer(N), N > 0 -> [];
@@ -378,6 +380,9 @@ defaults(Config) ->
         max_xorb_bytes => 71303168,
         max_shard_bytes => 67108864,
         spool_memory_max => 16777216,
+        %% Reject uploads (507) and fail readiness when free space on the
+        %% data dir drops below this many bytes (default 1 GiB).
+        min_free_bytes => 1073741824,
         url_ttl => 900,
         %% url_secret has no default here: when absent,
         %% xet_server_stores reuses the secret persisted in metadata (or

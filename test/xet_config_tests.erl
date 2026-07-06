@@ -128,6 +128,19 @@ spool_zero_is_valid_test() ->
     {ok, Config} = xet_config:load(valid(#{spool_memory_max => 0})),
     ?assertEqual(0, maps:get(spool_memory_max, Config)).
 
+min_free_bytes_default_test() ->
+    {ok, Config} = xet_config:load(valid(#{})),
+    ?assertEqual(1073741824, maps:get(min_free_bytes, Config)),
+    %% 0 disables the margin.
+    {ok, C2} = xet_config:load(valid(#{min_free_bytes => 0})),
+    ?assertEqual(0, maps:get(min_free_bytes, C2)).
+
+bad_min_free_bytes_test() ->
+    ?assertEqual(
+        [<<"min_free_bytes must be a non-negative integer, got -1">>],
+        errors(valid(#{min_free_bytes => -1}))
+    ).
+
 bad_ratelimit_test() ->
     ?assertEqual(
         [<<"ratelimit must be false or #{capacity => N, per_second => Rate}">>],

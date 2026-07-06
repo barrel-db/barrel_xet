@@ -39,7 +39,8 @@
     chunk_miss/1,
     key_rotation/1,
     metrics_counters/1,
-    metrics_store_and_chunks/1
+    metrics_store_and_chunks/1,
+    insufficient_storage/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
@@ -79,7 +80,8 @@ all() ->
         chunk_miss,
         key_rotation,
         metrics_counters,
-        metrics_store_and_chunks
+        metrics_store_and_chunks,
+        insufficient_storage
     ].
 
 init_per_suite(Config) ->
@@ -741,6 +743,30 @@ metrics_counters(_Config) ->
     Present(<<"xet.xorbs.dedup_hits">>),
     Present(<<"xet.shards.registered">>),
     Present(<<"xet.files.registered">>).
+
+%% An impossibly large min_free_bytes makes the preflight reject uploads
+%% with 507 and turns /readyz to 503 listing "disk".
+insufficient_storage(Config) ->
+    DataDir = filename:join(proplists:get_value(priv_dir, Config), "nospace"),
+    {ok, _} = xet_server:start(#{
+        name => xet_nospace_server,
+        data_dir => DataDir,
+        min_free_bytes => 1 bsl 60,
+        auth => {xet_auth_static, #{tokens => #{?TOKEN => write}}}
+    }),
+    try
+        Base = "http://127.0.0.1:" ++ integer_to_list(xet_server:port(xet_nospace_server)),
+        Enc = sample_xorb([140, 141]),
+        {Status, Body} = post_xorb(Base, path_for(Enc), maps:get(bin, Enc)),
+        ?assertEqual(507, Status),
+        ?assertEqual(#{<<"error">> => <<"insufficient_storage">>}, json:decode(Body)),
+        {ok, 503, _, RBody} = hackney:request(
+            get, Base ++ "/readyz", [], <<>>, [with_body, {pool, false}]
+        ),
+        ?assert(lists:member(<<"disk">>, maps:get(<<"failed">>, json:decode(RBody))))
+    after
+        ok = xet_server:stop(xet_nospace_server)
+    end.
 
 %% An upload (FS put) and a chunk query populate the store-op and chunk
 %% metrics, labeled with the fs backend. Note the FS /data endpoint

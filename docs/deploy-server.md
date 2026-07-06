@@ -40,6 +40,13 @@ Then set environment variables as needed; every one has a default:
 | `BARREL_XET_LOG_LEVEL` | `notice` |
 | `BARREL_XET_NODE` | `barrel_xet@127.0.0.1` |
 
+To change the free-space reserve, set `min_free_bytes` in the config
+map (default 1 GiB). When free space on the data dir drops below the
+reserve plus room for the incoming upload, the server answers `507
+Insufficient Storage` and `/readyz` reports `disk` as failed so a load
+balancer drains the node. `507` is not one of the spec's enumerated
+statuses; clients that retry `5xx` will back off and retry.
+
 ### TLS
 
 Point `BARREL_XET_TLS_CERT` and `BARREL_XET_TLS_KEY` at PEM files to

@@ -29,6 +29,7 @@ start_link(Config) ->
 -spec init(map()) -> {ok, state()} | {stop, term()}.
 init(#{name := Name} = Config0) ->
     process_flag(trap_exit, true),
+    ok = xet_disk:ensure_started(),
     DataDir = maps:get(data_dir, Config0),
     MetaDir = filename:join(DataDir, "metadata"),
     maybe
