@@ -39,8 +39,13 @@ put(#{client := Client, bucket := Bucket} = State, Ns, Hash, Body) ->
                         content_type => <<"application/octet-stream">>
                     })
                 of
-                    {ok, _} -> ok;
-                    {error, _} = Error -> Error
+                    {ok, _} ->
+                        ok;
+                    {error, _} = Error ->
+                        logger:warning("s3 put_object failed for ~ts (retries exhausted): ~p", [
+                            Key, Error
+                        ]),
+                        Error
                 end
         end
     end.

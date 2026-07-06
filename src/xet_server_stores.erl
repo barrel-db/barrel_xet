@@ -39,7 +39,9 @@ init(#{name := Name} = Config0) ->
         persistent_term:put({xet_server_env, Name}, Env),
         {ok, #state{name = Name, metadata = Metadata, blob = Blob}}
     else
-        {error, Reason} -> {stop, Reason}
+        {error, Reason} ->
+            logger:error("barrel_xet stores failed to open under ~ts: ~p", [MetaDir, Reason]),
+            {stop, Reason}
     end.
 
 %% Only lock contention is worth retrying: a predecessor's LOCK file is

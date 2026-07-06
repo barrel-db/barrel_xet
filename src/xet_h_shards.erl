@@ -135,7 +135,8 @@ register_shard(#{metadata := Metadata}, Files, Cas, Xorbs) ->
                     false -> 1
                 end,
             livery_resp:json(200, json:encode(#{result => Result}));
-        {error, _} ->
+        {error, Reason} ->
+            logger:error("shard registration failed: ~p", [Reason]),
             xet_routes:error_response(500, <<"storage_error">>)
     end.
 

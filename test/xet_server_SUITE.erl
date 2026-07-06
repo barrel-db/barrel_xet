@@ -23,7 +23,8 @@
     h2_cert_rotation/1,
     security_headers/1,
     metrics_endpoint/1,
-    access_log_session_id/1
+    access_log_session_id/1,
+    storage_error_logged/1
 ]).
 
 all() ->
@@ -43,7 +44,8 @@ all() ->
         h2_cert_rotation,
         security_headers,
         metrics_endpoint,
-        access_log_session_id
+        access_log_session_id,
+        storage_error_logged
     ].
 
 init_per_suite(Config) ->
@@ -302,6 +304,59 @@ recv_access_event(Timeout) ->
             recv_access_event(Timeout)
     after Timeout ->
         error(no_access_event)
+    end.
+
+%% A blob store write that fails answers 500 and logs the reason
+%% (previously a silent storage_error). A read-only xorbs root makes the
+%% put fail without touching the metadata store.
+storage_error_logged(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "roblob"),
+    Xorbs = filename:join(Dir, "xorbs"),
+    ok = filelib:ensure_path(Xorbs),
+    {ok, _} = xet_server:start(#{
+        name => xet_roblob_server,
+        data_dir => Dir,
+        auth => {xet_auth_static, #{tokens => #{<<"w">> => write}}}
+    }),
+    ok = logger:add_handler(xet_capture, ?MODULE, #{
+        level => error,
+        config => #{pid => self()},
+        formatter => {logger_formatter, #{single_line => true}}
+    }),
+    try
+        ok = file:change_mode(Xorbs, 8#500),
+        {ok, Enc} = xet_xorb:encode(
+            [xet_test_vectors:splitmix64_data(2000, 5)], #{nonce => <<0, 0, 0, 0>>}
+        ),
+        Path =
+            "/api/v1/xorbs/default/" ++ binary_to_list(xet_hash:to_string(maps:get(hash, Enc))),
+        {ok, 500, _, Body} = hackney:request(
+            post,
+            base_url(xet_roblob_server) ++ Path,
+            [{<<"authorization">>, <<"Bearer w">>}],
+            maps:get(bin, Enc),
+            [with_body, {pool, false}]
+        ),
+        ?assertEqual(#{<<"error">> => <<"storage_error">>}, json:decode(Body)),
+        ok = recv_log_matching(<<"xorb commit failed">>, 5000)
+    after
+        _ = file:change_mode(Xorbs, 8#700),
+        logger:remove_handler(xet_capture),
+        ok = xet_server:stop(xet_roblob_server)
+    end.
+
+recv_log_matching(Substr, Timeout) ->
+    receive
+        {access_event, Event} ->
+            Text = unicode:characters_to_binary(
+                logger_formatter:format(Event, #{single_line => true, template => [msg]})
+            ),
+            case binary:match(Text, Substr) of
+                nomatch -> recv_log_matching(Substr, Timeout);
+                _ -> ok
+            end
+    after Timeout ->
+        error({no_log_matching, Substr})
     end.
 
 %% Baseline hardening headers decorate every response by default; HSTS

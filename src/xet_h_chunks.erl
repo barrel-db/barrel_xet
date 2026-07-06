@@ -41,8 +41,14 @@ find(#{metadata := Metadata}, Hash) ->
 
 load_xorb(#{metadata := Metadata}, XorbHash) ->
     case xet_metadata:get_xorb(Metadata, XorbHash) of
-        {ok, Xorb} -> {ok, Xorb};
-        not_found -> {error, xet_routes:error_response(500, <<"inconsistent_metadata">>)}
+        {ok, Xorb} ->
+            {ok, Xorb};
+        not_found ->
+            logger:error(
+                "chunk index references missing xorb ~ts",
+                [xet_hash:to_string(XorbHash)]
+            ),
+            {error, xet_routes:error_response(500, <<"inconsistent_metadata">>)}
     end.
 
 respond(Name, XorbHash, Xorb) ->

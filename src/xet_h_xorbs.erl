@@ -69,7 +69,12 @@ commit(#{metadata := Metadata, blob := Blob}, Ns, Hash, Bin, Decoded) ->
         xet_metrics:count(<<"xet.xorbs.uploaded.bytes">>, byte_size(Bin)),
         reply_inserted(true)
     else
-        {error, _} -> xet_routes:error_response(500, <<"storage_error">>)
+        {error, Reason} ->
+            logger:error(
+                "xorb commit failed for ~ts/~ts: ~p",
+                [Ns, xet_hash:to_string(Hash), Reason]
+            ),
+            xet_routes:error_response(500, <<"storage_error">>)
     end.
 
 head(Req) ->
