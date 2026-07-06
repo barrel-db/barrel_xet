@@ -5,7 +5,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 router(Config) ->
-    xet_routes:compile(maps:merge(#{request_timeout => 12345}, Config)).
+    xet_routes:compile(maps:merge(#{name => xet_routes_test, request_timeout => 12345}, Config)).
 
 meta(Method, Path, Router) ->
     {ok, _Handler, _Bindings, Meta} = livery_router:match(Method, Path, Router),

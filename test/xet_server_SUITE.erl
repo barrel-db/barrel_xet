@@ -24,7 +24,8 @@
     security_headers/1,
     metrics_endpoint/1,
     access_log_session_id/1,
-    storage_error_logged/1
+    storage_error_logged/1,
+    readyz/1
 ]).
 
 all() ->
@@ -45,7 +46,8 @@ all() ->
         security_headers,
         metrics_endpoint,
         access_log_session_id,
-        storage_error_logged
+        storage_error_logged,
+        readyz
     ].
 
 init_per_suite(Config) ->
@@ -304,6 +306,37 @@ recv_access_event(Timeout) ->
             recv_access_event(Timeout)
     after Timeout ->
         error(no_access_event)
+    end.
+
+%% /readyz probes the stores: healthy after boot, 503 listing "blob"
+%% when the blob root vanishes, and healthy again once it returns.
+%% (/healthz stays a static liveness ping and is unaffected.)
+readyz(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "readyz"),
+    Xorbs = filename:join(Dir, "xorbs"),
+    ok = filelib:ensure_path(Xorbs),
+    {ok, _} = xet_server:start(#{
+        name => xet_readyz_server,
+        data_dir => Dir,
+        auth => {xet_auth_static, #{tokens => #{}}}
+    }),
+    try
+        Base = base_url(xet_readyz_server),
+        %% Auth-exempt: no token needed (k8s probes cannot send one).
+        {200, _, B1} = get_(Base ++ "/readyz", []),
+        ?assertEqual(<<"ok">>, maps:get(<<"status">>, json:decode(B1))),
+        Gone = Xorbs ++ ".gone",
+        ok = file:rename(Xorbs, Gone),
+        {503, _, B2} = get_(Base ++ "/readyz", []),
+        Decoded = json:decode(B2),
+        ?assertEqual(<<"unavailable">>, maps:get(<<"status">>, Decoded)),
+        ?assert(lists:member(<<"blob">>, maps:get(<<"failed">>, Decoded))),
+        %% Liveness is unaffected by a degraded store.
+        {200, _, _} = get_(Base ++ "/healthz", []),
+        ok = file:rename(Gone, Xorbs),
+        {200, _, _} = get_(Base ++ "/readyz", [])
+    after
+        ok = xet_server:stop(xet_readyz_server)
     end.
 
 %% A blob store write that fails answers 500 and logs the reason

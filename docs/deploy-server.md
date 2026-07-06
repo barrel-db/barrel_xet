@@ -102,9 +102,21 @@ variables (for example `OTEL_METRICS_EXPORTER=otlp` and
 boot with no configuration. Set `metrics => false` in the server map
 to remove the endpoint.
 
+## Health and readiness
+
+- `GET /healthz` is a liveness probe: it always answers `200` while the
+  process is up. Point a supervisor or `HEALTHCHECK` at it to restart a
+  hung node.
+- `GET /readyz` is a readiness probe: it answers `200` when the metadata
+  store, blob store, and key ring are all healthy, or `503` with a
+  `"failed"` list otherwise. Point a load balancer or Kubernetes
+  readiness probe at it so a degraded node is drained rather than
+  restarted. Both endpoints skip authentication.
+
 ## Verify
 
 ```sh
 curl -s http://127.0.0.1:8080/healthz     # {"status":"ok"}
+curl -s http://127.0.0.1:8080/readyz      # {"status":"ok"} when serving
 make smoke                                # full cold-start roundtrip
 ```

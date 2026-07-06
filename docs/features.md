@@ -77,7 +77,7 @@ standalone CAS server.
 - [x] T9.3 Store op histograms + chunk query counters
 - [x] T9.4 Access log + session id + trace correlation
 - [x] T9.5 Error logging on failure paths
-- [ ] T9.6 /readyz readiness checks
+- [x] T9.6 /readyz readiness checks
 - [ ] T9.7 Admin scaffold + GET /admin/stats
 - [ ] T9.8 Observability docs + logger config block
 

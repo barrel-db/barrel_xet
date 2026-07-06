@@ -31,6 +31,7 @@ compile(Config) ->
     livery_router:compile(
         [
             {<<"GET">>, <<"/healthz">>, fun health/1, route_meta(<<"GET">>, Deadline)},
+            {<<"GET">>, <<"/readyz">>, xet_health:readyz(Config), route_meta(<<"GET">>, Deadline)},
             %% xet-core posts shards to the bare path.
             {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1}
         ] ++ metrics_route(Config, Deadline) ++ Prefixed
@@ -193,6 +194,8 @@ auth_middleware(#{auth := AuthCfg}) ->
     end.
 
 requires_auth(<<"/healthz">>) ->
+    false;
+requires_auth(<<"/readyz">>) ->
     false;
 requires_auth(Path) ->
     %% The data endpoint authenticates by URL signature (spec 13.7.1);
