@@ -8,6 +8,29 @@
     {kernel, [
         %% Lowercase logger level: debug | info | notice | warning | error.
         {logger_level, ${BARREL_XET_LOG_LEVEL:-notice}}
+        %% File logging with rotation (see docs/observability.md).
+        %% Uncomment (including the leading comma) and set the path to
+        %% also write logs to disk. session_id and trace_id ride the
+        %% event metadata; the access line carries request_id in msg.
+        %% ,
+        %% {logger, [
+        %%     {handler, file, logger_std_h, #{
+        %%         config => #{
+        %%             file => "/var/log/barrel_xet/server.log",
+        %%             max_no_bytes => 10485760,
+        %%             max_no_files => 5
+        %%         },
+        %%         formatter => {logger_formatter, #{
+        %%             single_line => true,
+        %%             template => [
+        %%                 time, " ", level, " ",
+        %%                 {session_id, ["sess=", session_id, " "], []},
+        %%                 {trace_id, ["trace=", trace_id, " "], []},
+        %%                 msg, "\n"
+        %%             ]
+        %%         }}
+        %%     }}
+        %% ]}
     ]},
     {barrel_xet, [
         {server, #{

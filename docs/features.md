@@ -79,7 +79,7 @@ standalone CAS server.
 - [x] T9.5 Error logging on failure paths
 - [x] T9.6 /readyz readiness checks
 - [x] T9.7 Admin scaffold + GET /admin/stats
-- [ ] T9.8 Observability docs + logger config block
+- [x] T9.8 Observability docs + logger config block
 
 ## Phase 10: Storage lifecycle (0.2.0)
 
