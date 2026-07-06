@@ -89,6 +89,9 @@ init(Config) ->
 %% demand so metrics/trace middleware have somewhere to record.
 maybe_start_instrument(#{observability := true}) ->
     {ok, _} = application:ensure_all_started(instrument),
+    %% Enrich log events emitted inside a request span with trace_id and
+    %% span_id, so the access log correlates with traces. Idempotent.
+    _ = livery_instrument_trace:install_logger(),
     ok;
 maybe_start_instrument(_Config) ->
     ok.

@@ -13,6 +13,7 @@
 -define(DEFAULT_MAX_BODY, 83886080).
 
 -define(KNOWN_KEYS, [
+    access_log,
     auth,
     blob,
     concurrency,
@@ -328,7 +329,8 @@ check_misc(Config) ->
         check_secret(maps:get(url_secret, Config, undefined)) ++
         check_namespaces(maps:get(namespaces, Config, undefined)) ++
         check_flag(observability, maps:get(observability, Config, undefined)) ++
-        check_flag(metrics, maps:get(metrics, Config, undefined)).
+        check_flag(metrics, maps:get(metrics, Config, undefined)) ++
+        check_flag(access_log, maps:get(access_log, Config, undefined)).
 
 check_name(undefined) -> [];
 check_name(Name) when is_atom(Name) -> [];
@@ -391,6 +393,8 @@ defaults(Config) ->
         %% record locally, /metrics serves them under the read scope,
         %% and exporters stay opt-in (OTEL_* env vars).
         observability => true,
-        metrics => true
+        metrics => true,
+        %% One structured logger line per request.
+        access_log => true
     },
     maps:merge(Defaults, Config).

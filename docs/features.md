@@ -75,7 +75,7 @@ standalone CAS server.
 - [x] T9.1 /metrics endpoint + observability on by default
 - [x] T9.2 xet_metrics + ingest counters
 - [x] T9.3 Store op histograms + chunk query counters
-- [ ] T9.4 Access log + session id + trace correlation
+- [x] T9.4 Access log + session id + trace correlation
 - [ ] T9.5 Error logging on failure paths
 - [ ] T9.6 /readyz readiness checks
 - [ ] T9.7 Admin scaffold + GET /admin/stats

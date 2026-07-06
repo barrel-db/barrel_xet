@@ -165,6 +165,16 @@ bad_security_headers_test() ->
     ),
     {ok, _} = xet_config:load(valid(#{security_headers => false})).
 
+access_log_defaults_on_test() ->
+    {ok, Config} = xet_config:load(valid(#{})),
+    ?assertEqual(true, maps:get(access_log, Config)).
+
+bad_access_log_test() ->
+    ?assertEqual(
+        [<<"access_log must be a boolean, got yes">>],
+        errors(valid(#{access_log => yes}))
+    ).
+
 bad_blob_test() ->
     ?assertEqual(
         [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>],

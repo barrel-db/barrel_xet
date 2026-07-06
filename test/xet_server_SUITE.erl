@@ -5,6 +5,8 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
+%% Exported so it can serve as a logger handler in access_log_session_id.
+-export([log/2]).
 -export([
     healthz/1,
     unauthorized_without_token/1,
@@ -20,7 +22,8 @@
     h3_listener/1,
     h2_cert_rotation/1,
     security_headers/1,
-    metrics_endpoint/1
+    metrics_endpoint/1,
+    access_log_session_id/1
 ]).
 
 all() ->
@@ -39,7 +42,8 @@ all() ->
         h3_listener,
         h2_cert_rotation,
         security_headers,
-        metrics_endpoint
+        metrics_endpoint,
+        access_log_session_id
     ].
 
 init_per_suite(Config) ->
@@ -260,6 +264,44 @@ h2_cert_rotation(Config) ->
             after
                 ok = xet_server:stop(xet_rotate_server)
             end
+    end.
+
+%% Every request emits one structured access-log report carrying its
+%% request id, and the client's X-Xet-Session-Id rides the log event's
+%% process metadata (proving the middleware and access log run in the
+%% same process).
+log(Event, #{config := #{pid := Pid}}) ->
+    Pid ! {access_event, Event},
+    ok.
+
+access_log_session_id(Config) ->
+    ok = logger:add_handler(xet_capture, ?MODULE, #{
+        level => notice,
+        config => #{pid => self()},
+        formatter => {logger_formatter, #{}}
+    }),
+    try
+        SessionId = <<"sess-abc-123">>,
+        {200, _, _} = get_(base(Config) ++ "/healthz", [
+            {<<"x-xet-session-id">>, SessionId}
+        ]),
+        {Report, Meta} = recv_access_event(5000),
+        ?assertEqual("livery_access", maps:get(msg, Report)),
+        ?assertNotEqual(undefined, maps:get(request_id, Report, undefined)),
+        ?assertEqual(<<"/healthz">>, maps:get(path, Report)),
+        ?assertEqual(SessionId, maps:get(session_id, Meta, undefined))
+    after
+        logger:remove_handler(xet_capture)
+    end.
+
+recv_access_event(Timeout) ->
+    receive
+        {access_event, #{msg := {report, #{msg := "livery_access"} = Report}, meta := Meta}} ->
+            {Report, Meta};
+        {access_event, _Other} ->
+            recv_access_event(Timeout)
+    after Timeout ->
+        error(no_access_event)
     end.
 
 %% Baseline hardening headers decorate every response by default; HSTS

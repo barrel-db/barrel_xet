@@ -112,13 +112,17 @@ health(_Req) ->
     livery_resp:json(200, json:encode(#{status => <<"ok">>})).
 
 %% Listener middleware, outermost first: request id, security headers,
-%% optional observability (metrics + trace), optional rate limiting and
-%% concurrency caps, then bearer auth.
+%% session-id logging metadata, optional observability (metrics +
+%% trace), the access log (inside the trace span so its lines carry the
+%% same trace_id), optional rate limiting and concurrency caps, then
+%% bearer auth.
 -spec stack(map()) -> [term()].
 stack(Config) ->
     [{livery_request_id, #{}}] ++
         security_headers(Config) ++
+        [{xet_mw_log_meta, #{}}] ++
         observability(Config) ++
+        access_log(Config) ++
         ratelimit(Config) ++
         concurrency(Config) ++
         [auth_middleware(Config)].
@@ -129,6 +133,17 @@ security_headers(#{security_headers := Opts}) when is_map(Opts) ->
     [{livery_security_headers, Opts}];
 security_headers(_Config) ->
     [].
+
+%% One structured line per request (method, path, status, duration,
+%% request id), carrying the session id and trace id from the metadata
+%% set above.
+%% notice, not livery's default info: the release log level defaults to
+%% notice, and access lines should show there rather than be silently
+%% filtered.
+access_log(#{access_log := false}) ->
+    [];
+access_log(_Config) ->
+    [{livery_access_log, #{level => notice}}].
 
 %% instrument-backed OpenTelemetry metrics and tracing. Both middlewares
 %% degrade gracefully if the instrument registry is not running, so this
