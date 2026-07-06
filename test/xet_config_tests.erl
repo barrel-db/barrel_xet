@@ -21,6 +21,8 @@ minimal_defaults_test() ->
     ?assertEqual(900, maps:get(url_ttl, Config)),
     ?assertEqual(false, maps:get(ratelimit, Config)),
     ?assertEqual(false, maps:get(concurrency, Config)),
+    ?assertEqual(30000, maps:get(request_timeout, Config)),
+    ?assertEqual(#{}, maps:get(security_headers, Config)),
     %% No default: absence lets the stores reuse the persisted secret.
     ?assertNot(maps:is_key(url_secret, Config)).
 
@@ -140,6 +142,20 @@ bad_concurrency_test() ->
         [<<"concurrency must be false or a positive integer, got 0">>],
         errors(valid(#{concurrency => 0}))
     ).
+
+bad_request_timeout_test() ->
+    ?assertEqual(
+        [<<"request_timeout must be false or milliseconds, got 0">>],
+        errors(valid(#{request_timeout => 0}))
+    ),
+    {ok, _} = xet_config:load(valid(#{request_timeout => false})).
+
+bad_security_headers_test() ->
+    ?assertEqual(
+        [<<"security_headers must be false or an options map, got on">>],
+        errors(valid(#{security_headers => on}))
+    ),
+    {ok, _} = xet_config:load(valid(#{security_headers => false})).
 
 bad_blob_test() ->
     ?assertEqual(

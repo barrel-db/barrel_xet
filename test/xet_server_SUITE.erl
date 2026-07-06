@@ -18,7 +18,8 @@
     auth_file_reload/1,
     tls_misconfig/1,
     h3_listener/1,
-    h2_cert_rotation/1
+    h2_cert_rotation/1,
+    security_headers/1
 ]).
 
 all() ->
@@ -35,7 +36,8 @@ all() ->
         auth_file_reload,
         tls_misconfig,
         h3_listener,
-        h2_cert_rotation
+        h2_cert_rotation,
+        security_headers
     ].
 
 init_per_suite(Config) ->
@@ -257,6 +259,15 @@ h2_cert_rotation(Config) ->
                 ok = xet_server:stop(xet_rotate_server)
             end
     end.
+
+%% Baseline hardening headers decorate every response by default; HSTS
+%% stays off on cleartext (meaningless there, livery skips it).
+security_headers(Config) ->
+    {200, Headers, _} = get_(base(Config) ++ "/healthz", []),
+    ?assertEqual(<<"nosniff">>, proplists:get_value(<<"x-content-type-options">>, Headers)),
+    ?assertEqual(<<"DENY">>, proplists:get_value(<<"x-frame-options">>, Headers)),
+    ?assertEqual(<<"no-referrer">>, proplists:get_value(<<"referrer-policy">>, Headers)),
+    ?assertEqual(undefined, proplists:get_value(<<"strict-transport-security">>, Headers)).
 
 gen_cert(Dir, Base) ->
     ok = filelib:ensure_path(Dir),

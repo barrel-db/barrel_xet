@@ -10,7 +10,8 @@
 %% Endpoints register under /api/v1 and /v1 (the OpenAPI spells the
 %% first, xet-core clients build the second).
 -spec compile(map()) -> livery_router:router().
-compile(_Config) ->
+compile(Config) ->
+    Deadline = maps:get(request_timeout, Config, false),
     V1 = [
         {<<"POST">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:upload/1},
         {<<"HEAD">>, <<"/xorbs/:ns/:hash">>, fun xet_h_xorbs:head/1},
@@ -24,36 +25,56 @@ compile(_Config) ->
         {<<"GET">>, <<"/reconstructions/:hash">>, fun xet_h_reconstructions:get_v2/1}
     ],
     Prefixed =
-        [
-            {Method, <<Prefix/binary, Pattern/binary>>, Handler}
-         || Prefix <- [<<"/api/v1">>, <<"/v1">>],
-            {Method, Pattern, Handler} <- V1
-        ] ++
-            [
-                {Method, <<Prefix/binary, Pattern/binary>>, Handler}
-             || Prefix <- [<<"/api/v2">>, <<"/v2">>],
-                {Method, Pattern, Handler} <- V2
-            ],
+        prefix_routes([<<"/api/v1">>, <<"/v1">>], V1, Deadline) ++
+            prefix_routes([<<"/api/v2">>, <<"/v2">>], V2, Deadline),
     livery_router:compile([
-        {<<"GET">>, <<"/healthz">>, fun health/1},
+        {<<"GET">>, <<"/healthz">>, fun health/1, route_meta(<<"GET">>, Deadline)},
         %% xet-core posts shards to the bare path.
         {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1}
         | Prefixed
     ]).
 
+prefix_routes(Prefixes, Routes, Deadline) ->
+    [
+        {Method, <<Prefix/binary, Pattern/binary>>, Handler, route_meta(Method, Deadline)}
+     || Prefix <- Prefixes,
+        {Method, Pattern, Handler} <- Routes
+    ].
+
+%% Deadline on the read surface only. Upload handlers stream their
+%% request bodies, which livery_timeout's worker cannot receive (chunks
+%% land in the request process); they keep xet_http_body's per-chunk
+%% inactivity bound instead. /data responses return a file descriptor
+%% the listener streams after the handler returns, so the deadline
+%% bounds handler time, not transfer time.
+route_meta(<<"GET">>, Ms) when is_integer(Ms) -> deadline_meta(Ms);
+route_meta(<<"HEAD">>, Ms) when is_integer(Ms) -> deadline_meta(Ms);
+route_meta(_Method, _Deadline) -> undefined.
+
+deadline_meta(Ms) ->
+    #{middleware => [{livery_timeout, #{after_ms => Ms}}]}.
+
 health(_Req) ->
     livery_resp:json(200, json:encode(#{status => <<"ok">>})).
 
-%% Listener middleware, outermost first: request id, optional
-%% observability (metrics + trace), optional rate limiting and
+%% Listener middleware, outermost first: request id, security headers,
+%% optional observability (metrics + trace), optional rate limiting and
 %% concurrency caps, then bearer auth.
 -spec stack(map()) -> [term()].
 stack(Config) ->
     [{livery_request_id, #{}}] ++
+        security_headers(Config) ++
         observability(Config) ++
         ratelimit(Config) ++
         concurrency(Config) ++
         [auth_middleware(Config)].
+
+%% Baseline hardening headers on every response (handlers can override
+%% any of them); HSTS is emitted by livery only on TLS requests.
+security_headers(#{security_headers := Opts}) when is_map(Opts) ->
+    [{livery_security_headers, Opts}];
+security_headers(_Config) ->
+    [].
 
 %% instrument-backed OpenTelemetry metrics and tracing. Both middlewares
 %% degrade gracefully if the instrument registry is not running, so this

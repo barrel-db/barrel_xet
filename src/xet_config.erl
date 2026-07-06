@@ -30,6 +30,8 @@
     namespaces,
     observability,
     ratelimit,
+    request_timeout,
+    security_headers,
     spool_memory_max,
     url_secret,
     url_ttl
@@ -181,6 +183,8 @@ validate(Config) ->
         fun check_sizes/1,
         fun check_ratelimit/1,
         fun check_concurrency/1,
+        fun check_request_timeout/1,
+        fun check_security_headers/1,
         fun check_blob/1,
         fun check_misc/1
     ]).
@@ -290,6 +294,24 @@ check_concurrency(#{concurrency := V}) ->
 check_concurrency(_Config) ->
     [].
 
+check_request_timeout(#{request_timeout := false}) ->
+    [];
+check_request_timeout(#{request_timeout := Ms}) when is_integer(Ms), Ms > 0 ->
+    [];
+check_request_timeout(#{request_timeout := V}) ->
+    [format("request_timeout must be false or milliseconds, got ~tp", [V])];
+check_request_timeout(_Config) ->
+    [].
+
+check_security_headers(#{security_headers := false}) ->
+    [];
+check_security_headers(#{security_headers := Opts}) when is_map(Opts) ->
+    [];
+check_security_headers(#{security_headers := V}) ->
+    [format("security_headers must be false or an options map, got ~tp", [V])];
+check_security_headers(_Config) ->
+    [].
+
 check_blob(#{blob := {fs, #{dir := Dir}}}) when is_list(Dir); is_binary(Dir) -> [];
 check_blob(#{blob := {s3, Opts}}) when is_map(Opts) -> [];
 check_blob(#{blob := _}) -> [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>];
@@ -345,6 +367,14 @@ defaults(Config) ->
         %% generates and persists one), so signed URLs survive restarts.
         key_rotation_interval => 86400,
         ratelimit => false,
-        concurrency => false
+        concurrency => false,
+        %% Deadline on GET/HEAD handlers only: upload routes stream
+        %% their request bodies (incompatible with the timeout worker)
+        %% and carry their own per-chunk inactivity bound; /data
+        %% responses stream after the handler returns, so the deadline
+        %% covers handler time, not transfer time.
+        request_timeout => 30000,
+        %% livery_security_headers defaults; HSTS emits only over TLS.
+        security_headers => #{}
     },
     maps:merge(Defaults, Config).
