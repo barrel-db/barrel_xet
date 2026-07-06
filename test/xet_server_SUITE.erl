@@ -25,7 +25,8 @@
     metrics_endpoint/1,
     access_log_session_id/1,
     storage_error_logged/1,
-    readyz/1
+    readyz/1,
+    admin_stats/1
 ]).
 
 all() ->
@@ -47,7 +48,8 @@ all() ->
         metrics_endpoint,
         access_log_session_id,
         storage_error_logged,
-        readyz
+        readyz,
+        admin_stats
     ].
 
 init_per_suite(Config) ->
@@ -307,6 +309,46 @@ recv_access_event(Timeout) ->
     after Timeout ->
         error(no_access_event)
     end.
+
+%% /admin/stats needs the admin scope and is mounted only when enabled:
+%% read/write tokens are 403, no token 401, and a server without the
+%% admin surface answers 404.
+admin_stats(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "admin"),
+    {ok, _} = xet_server:start(#{
+        name => xet_admin_server,
+        data_dir => Dir,
+        admin => #{enabled => true},
+        auth =>
+            {xet_auth_static, #{
+                tokens => #{<<"root">> => admin, <<"w">> => write, <<"r">> => read}
+            }}
+    }),
+    Dir2 = filename:join(proplists:get_value(priv_dir, Config), "noadmin"),
+    {ok, _} = xet_server:start(#{
+        name => xet_noadmin_server,
+        data_dir => Dir2,
+        auth => {xet_auth_static, #{tokens => #{<<"root">> => admin}}}
+    }),
+    try
+        Base = base_url(xet_admin_server),
+        ?assertEqual(401, status(get_(Base ++ "/admin/stats", []))),
+        ?assertEqual(403, status(get_(Base ++ "/admin/stats", bearer(<<"r">>)))),
+        ?assertEqual(403, status(get_(Base ++ "/admin/stats", bearer(<<"w">>)))),
+        {200, _, Body} = get_(Base ++ "/admin/stats", bearer(<<"root">>)),
+        Meta = maps:get(<<"metadata">>, json:decode(Body)),
+        ?assert(is_integer(maps:get(<<"xorbs">>, Meta))),
+        %% Disabled elsewhere: the route does not exist even for admin.
+        NoAdmin = base_url(xet_noadmin_server),
+        ?assertEqual(404, status(get_(NoAdmin ++ "/admin/stats", bearer(<<"root">>))))
+    after
+        ok = xet_server:stop(xet_admin_server),
+        ok = xet_server:stop(xet_noadmin_server)
+    end.
+
+status({S, _, _}) -> S.
+
+bearer(Token) -> [{<<"authorization">>, <<"Bearer ", Token/binary>>}].
 
 %% /readyz probes the stores: healthy after boot, 503 listing "blob"
 %% when the blob root vanishes, and healthy again once it returns.

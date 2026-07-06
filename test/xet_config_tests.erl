@@ -175,6 +175,18 @@ bad_access_log_test() ->
         errors(valid(#{access_log => yes}))
     ).
 
+admin_defaults_off_test() ->
+    {ok, Config} = xet_config:load(valid(#{})),
+    ?assertEqual(#{enabled => false}, maps:get(admin, Config)).
+
+bad_admin_test() ->
+    ?assertEqual(
+        [<<"admin must be false or #{enabled => boolean()}">>],
+        errors(valid(#{admin => on}))
+    ),
+    {ok, _} = xet_config:load(valid(#{admin => #{enabled => true}})),
+    {ok, _} = xet_config:load(valid(#{admin => false})).
+
 bad_blob_test() ->
     ?assertEqual(
         [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>],

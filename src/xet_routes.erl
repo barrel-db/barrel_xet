@@ -34,8 +34,15 @@ compile(Config) ->
             {<<"GET">>, <<"/readyz">>, xet_health:readyz(Config), route_meta(<<"GET">>, Deadline)},
             %% xet-core posts shards to the bare path.
             {<<"POST">>, <<"/shards">>, fun xet_h_shards:upload/1}
-        ] ++ metrics_route(Config, Deadline) ++ Prefixed
+        ] ++ metrics_route(Config, Deadline) ++ admin_routes(Config, Deadline) ++ Prefixed
     ).
+
+%% Non-spec admin surface, mounted only when explicitly enabled. Every
+%% route requires the admin scope (see scope_for/2).
+admin_routes(#{admin := #{enabled := true}}, Deadline) ->
+    [{<<"GET">>, <<"/admin/stats">>, fun xet_h_admin:stats/1, route_meta(<<"GET">>, Deadline)}];
+admin_routes(_Config, _Deadline) ->
+    [].
 
 %% Prometheus exposition of the instrument registry. Not exempt from
 %% auth: metrics leak paths and volumes, so scrapers present a read
@@ -184,7 +191,7 @@ auth_middleware(#{auth := AuthCfg}) ->
             false ->
                 Next(Req);
             true ->
-                Scope = scope_for(livery_req:method(Req)),
+                Scope = scope_for(livery_req:method(Req), livery_req:path(Req)),
                 case xet_auth:verify(AuthCfg, bearer_token(Req), Scope) of
                     {ok, _Principal} -> Next(Req);
                     {error, unauthorized} -> error_response(401, <<"unauthorized">>);
@@ -202,9 +209,12 @@ requires_auth(Path) ->
     %% intermediaries and browsers fetch it without bearer tokens.
     binary:longest_common_suffix([Path, <<"/data">>]) =/= 5.
 
-scope_for(<<"GET">>) -> read;
-scope_for(<<"HEAD">>) -> read;
-scope_for(_) -> write.
+%% Admin endpoints need the admin scope regardless of method; otherwise
+%% GET/HEAD are reads and the mutating verbs writes (OpenAPI scopes).
+scope_for(_Method, <<"/admin/", _/binary>>) -> admin;
+scope_for(<<"GET">>, _Path) -> read;
+scope_for(<<"HEAD">>, _Path) -> read;
+scope_for(_Method, _Path) -> write.
 
 bearer_token(Req) ->
     case livery_req:header(<<"authorization">>, Req) of

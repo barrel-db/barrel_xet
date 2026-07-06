@@ -14,6 +14,7 @@
 
 -define(KNOWN_KEYS, [
     access_log,
+    admin,
     auth,
     blob,
     concurrency,
@@ -189,6 +190,7 @@ validate(Config) ->
         fun check_request_timeout/1,
         fun check_security_headers/1,
         fun check_blob/1,
+        fun check_admin/1,
         fun check_misc/1
     ]).
 
@@ -324,6 +326,12 @@ check_blob(#{blob := {s3, Opts}}) when is_map(Opts) -> [];
 check_blob(#{blob := _}) -> [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>];
 check_blob(_Config) -> [].
 
+check_admin(#{admin := false}) -> [];
+check_admin(#{admin := #{enabled := E}}) when is_boolean(E) -> [];
+check_admin(#{admin := #{} = M}) when map_size(M) =:= 0 -> [];
+check_admin(#{admin := _}) -> [<<"admin must be false or #{enabled => boolean()}">>];
+check_admin(_Config) -> [].
+
 check_misc(Config) ->
     check_name(maps:get(name, Config, undefined)) ++
         check_secret(maps:get(url_secret, Config, undefined)) ++
@@ -395,6 +403,8 @@ defaults(Config) ->
         observability => true,
         metrics => true,
         %% One structured logger line per request.
-        access_log => true
+        access_log => true,
+        %% Non-spec admin endpoints (/admin/*) are off unless enabled.
+        admin => #{enabled => false}
     },
     maps:merge(Defaults, Config).
