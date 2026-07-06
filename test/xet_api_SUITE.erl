@@ -37,7 +37,8 @@
     data_ratelimited_per_url/1,
     chunk_dedup_flow/1,
     chunk_miss/1,
-    key_rotation/1
+    key_rotation/1,
+    metrics_counters/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
@@ -75,7 +76,8 @@ all() ->
         data_ratelimited_per_url,
         chunk_dedup_flow,
         chunk_miss,
-        key_rotation
+        key_rotation,
+        metrics_counters
     ].
 
 init_per_suite(Config) ->
@@ -716,6 +718,27 @@ chunk_dedup_flow(_Config) ->
 
 chunk_miss(_Config) ->
     {404, _, _} = get_chunk(xet_hash:to_string(<<987654:256>>)).
+
+%% An upload (plus a dedup re-post) and a shard registration bump the
+%% domain counters, which appear in the default-on metrics scrape.
+metrics_counters(_Config) ->
+    _World = registered_file([120, 121, 122]),
+    Enc = sample_xorb([120, 121, 122]),
+    %% Same xorb again: a dedup hit.
+    {200, _} = post_xorb(base(), path_for(Enc), maps:get(bin, Enc)),
+    {ok, 200, _, Body} = hackney:request(
+        get,
+        base() ++ "/metrics",
+        [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
+        <<>>,
+        [with_body, {pool, false}]
+    ),
+    Present = fun(Name) -> ?assertNotEqual(nomatch, binary:match(Body, Name)) end,
+    Present(<<"xet.xorbs.uploaded">>),
+    Present(<<"xet.xorbs.uploaded.bytes">>),
+    Present(<<"xet.xorbs.dedup_hits">>),
+    Present(<<"xet.shards.registered">>),
+    Present(<<"xet.files.registered">>).
 
 key_rotation(_Config) ->
     World = registered_file([83, 84]),

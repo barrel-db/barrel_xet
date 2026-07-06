@@ -127,6 +127,8 @@ register_shard(#{metadata := Metadata}, Files, Cas, Xorbs) ->
     Eligible = eligible_chunks(Files, Cas, Xorbs),
     case xet_metadata:register_files(Metadata, FileMetas, Eligible) of
         ok ->
+            xet_metrics:count(<<"xet.shards.registered">>, 1),
+            xet_metrics:count(<<"xet.files.registered">>, length(FileMetas)),
             Result =
                 case AllPresent of
                     true -> 0;

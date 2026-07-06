@@ -48,6 +48,7 @@ read_stream(Reader, #{cap := Cap, memory_max := MemMax} = Opts, Size, Acc) ->
     end.
 
 to_disk(Reader, #{spool_dir := SpoolDir} = Opts, Size, Acc) ->
+    xet_metrics:count(<<"xet.spool.spilled">>, 1),
     ok = filelib:ensure_path(SpoolDir),
     Path = filename:join(
         SpoolDir, "upload." ++ integer_to_list(erlang:unique_integer([positive])) ++ ".tmp"

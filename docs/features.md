@@ -73,7 +73,7 @@ standalone CAS server.
 ## Phase 9: Observability (0.2.0)
 
 - [x] T9.1 /metrics endpoint + observability on by default
-- [ ] T9.2 xet_metrics + ingest counters
+- [x] T9.2 xet_metrics + ingest counters
 - [ ] T9.3 Store op histograms + chunk query counters
 - [ ] T9.4 Access log + session id + trace correlation
 - [ ] T9.5 Error logging on failure paths

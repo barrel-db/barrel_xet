@@ -22,6 +22,7 @@ upload_checked(Req, Env, Ns, Hash) ->
     #{metadata := Metadata, config := Config} = Env,
     case xet_metadata:xorb_exists(Metadata, Hash) of
         true ->
+            xet_metrics:count(<<"xet.xorbs.dedup_hits">>, 1),
             reply_inserted(false);
         false ->
             SpoolOpts = #{
@@ -64,6 +65,8 @@ commit(#{metadata := Metadata, blob := Blob}, Ns, Hash, Bin, Decoded) ->
     maybe
         ok ?= xet_blob_store:put(Blob, Ns, Hash, Bin),
         ok ?= xet_metadata:register_xorb(Metadata, Meta),
+        xet_metrics:count(<<"xet.xorbs.uploaded">>, 1),
+        xet_metrics:count(<<"xet.xorbs.uploaded.bytes">>, byte_size(Bin)),
         reply_inserted(true)
     else
         {error, _} -> xet_routes:error_response(500, <<"storage_error">>)
