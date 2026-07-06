@@ -6,7 +6,14 @@
 
 -export([all/0, groups/0]).
 -export([init_per_group/2, end_per_group/2]).
--export([roundtrip/1, stream_put/1, missing_blob/1, idempotent_and_delete/1, presign/1]).
+-export([
+    roundtrip/1,
+    stream_put/1,
+    missing_blob/1,
+    idempotent_and_delete/1,
+    presign/1,
+    store_metrics_labeled/1
+]).
 
 -define(NS, <<"default">>).
 
@@ -14,7 +21,9 @@ all() ->
     [{group, fake}, {group, garage}].
 
 groups() ->
-    Cases = [roundtrip, stream_put, missing_blob, idempotent_and_delete, presign],
+    Cases = [
+        roundtrip, stream_put, missing_blob, idempotent_and_delete, presign, store_metrics_labeled
+    ],
     [{fake, [], Cases}, {garage, [], Cases}].
 
 init_per_group(fake, Config) ->
@@ -113,3 +122,18 @@ presign(Config) ->
     ?assert(is_binary(Url)),
     {ok, 200, _Headers, Body} = hackney:request(get, Url, [], <<>>, [with_body]),
     ?assertEqual(Data, Body).
+
+%% Store ops through the behaviour wrapper record duration and byte
+%% metrics labeled with the s3 backend.
+store_metrics_labeled(Config) ->
+    {ok, _} = application:ensure_all_started(instrument),
+    Store = store(Config),
+    Data = binary:copy(<<"m">>, 777),
+    ok = xet_blob_store:put(Store, ?NS, <<26:256>>, Data),
+    {ok, _} = xet_blob_store:get_range(Store, ?NS, <<26:256>>, 0, 777),
+    Body = iolist_to_binary(instrument_prometheus:format()),
+    Present = fun(Sub) -> ?assertNotEqual(nomatch, binary:match(Body, Sub)) end,
+    Present(<<"xet.store.op.duration">>),
+    Present(<<"xet.store.write.bytes">>),
+    Present(<<"xet.store.read.bytes">>),
+    Present(<<"backend=\"s3\"">>).

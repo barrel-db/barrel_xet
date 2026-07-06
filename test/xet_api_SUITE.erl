@@ -38,7 +38,8 @@
     chunk_dedup_flow/1,
     chunk_miss/1,
     key_rotation/1,
-    metrics_counters/1
+    metrics_counters/1,
+    metrics_store_and_chunks/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
@@ -77,7 +78,8 @@ all() ->
         chunk_dedup_flow,
         chunk_miss,
         key_rotation,
-        metrics_counters
+        metrics_counters,
+        metrics_store_and_chunks
     ].
 
 init_per_suite(Config) ->
@@ -739,6 +741,28 @@ metrics_counters(_Config) ->
     Present(<<"xet.xorbs.dedup_hits">>),
     Present(<<"xet.shards.registered">>),
     Present(<<"xet.files.registered">>).
+
+%% An upload (FS put) and a chunk query populate the store-op and chunk
+%% metrics, labeled with the fs backend. Note the FS /data endpoint
+%% streams the file via local_path, not get_range, so read bytes are
+%% exercised on the s3 backend instead (store_metrics_labeled there).
+metrics_store_and_chunks(_Config) ->
+    World = registered_file([130, 131, 132]),
+    [{FirstHash, _} | _] = maps:get(entries, World),
+    {200, _, _} = get_chunk(xet_hash:to_string(FirstHash)),
+    {ok, 200, _, Body} = hackney:request(
+        get,
+        base() ++ "/metrics",
+        [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
+        <<>>,
+        [with_body, {pool, false}]
+    ),
+    Present = fun(Name) -> ?assertNotEqual(nomatch, binary:match(Body, Name)) end,
+    Present(<<"xet.store.op.duration">>),
+    Present(<<"xet.store.write.bytes">>),
+    Present(<<"backend=\"fs\"">>),
+    Present(<<"xet.chunks.queries">>),
+    Present(<<"xet.chunks.hits">>).
 
 key_rotation(_Config) ->
     World = registered_file([83, 84]),

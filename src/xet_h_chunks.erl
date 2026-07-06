@@ -30,9 +30,13 @@ target(Req, #{config := Config}) ->
     end.
 
 find(#{metadata := Metadata}, Hash) ->
+    xet_metrics:count(<<"xet.chunks.queries">>, 1),
     case xet_metadata:find_chunk(Metadata, Hash) of
-        {ok, {XorbHash, Index}} -> {ok, XorbHash, Index};
-        not_found -> {error, xet_routes:error_response(404, <<"not_found">>)}
+        {ok, {XorbHash, Index}} ->
+            xet_metrics:count(<<"xet.chunks.hits">>, 1),
+            {ok, XorbHash, Index};
+        not_found ->
+            {error, xet_routes:error_response(404, <<"not_found">>)}
     end.
 
 load_xorb(#{metadata := Metadata}, XorbHash) ->
