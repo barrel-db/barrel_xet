@@ -14,7 +14,9 @@
     url_secret/1,
     created_at_optional/1,
     schema_guard/1,
-    stats/1
+    stats/1,
+    counters_no_double_count/1,
+    counters_backfill/1
 ]).
 
 all() ->
@@ -27,7 +29,9 @@ all() ->
         url_secret,
         created_at_optional,
         schema_guard,
-        stats
+        stats,
+        counters_no_double_count,
+        counters_backfill
     ].
 
 init_per_testcase(Case, Config) ->
@@ -176,9 +180,48 @@ stats(Config) ->
     ok = xet_metadata:register_xorb(Db, xorb_meta(1)),
     ok = xet_metadata:register_files(Db, [file_meta(1)], [{<<10:256>>, <<1:256>>, 0}]),
     Stats = xet_metadata:stats(Db),
-    ?assert(is_integer(maps:get(files, Stats))),
-    ?assert(is_integer(maps:get(xorbs, Stats))),
+    %% Maintained counters are exact; xorb_meta/1 carries bytes_on_disk 400.
+    ?assertEqual(1, maps:get(files, Stats)),
+    ?assertEqual(1, maps:get(xorbs, Stats)),
+    ?assertEqual(400, maps:get(bytes_on_disk, Stats)),
     ?assert(is_integer(maps:get(chunks, Stats))).
+
+%% Re-registering an existing xorb or file does not double-count.
+counters_no_double_count(Config) ->
+    Db = db(Config),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(1)),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(2)),
+    ok = xet_metadata:register_files(Db, [file_meta(1), file_meta(2)], []),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(1)),
+    ok = xet_metadata:register_files(Db, [file_meta(1)], []),
+    Stats = xet_metadata:stats(Db),
+    ?assertEqual(2, maps:get(xorbs, Stats)),
+    ?assertEqual(2, maps:get(files, Stats)),
+    ?assertEqual(800, maps:get(bytes_on_disk, Stats)).
+
+%% A database written before the counters existed seeds them from its
+%% data on the next open. Simulated with a raw handle that writes xorb
+%% records but no counter sentinel.
+counters_backfill(Config) ->
+    Dir = filename:join(proplists:get_value(dir, Config), "backfill"),
+    CfNames = ["default", "files", "xorbs", "chunks", "meta"],
+    Descriptors = [{N, []} || N <- CfNames],
+    DbOpts = [{create_if_missing, true}, {create_missing_column_families, true}],
+    {ok, H, [_D, _F, Xorbs, _C, _M]} = rocksdb:open(Dir, DbOpts, Descriptors),
+    Value = fun(Bytes) ->
+        Map = #{
+            entries => [], boundary_offsets => [1], unpacked_offsets => [1], bytes_on_disk => Bytes
+        },
+        <<1, (term_to_binary(Map))/binary>>
+    end,
+    ok = rocksdb:put(H, Xorbs, <<1:256>>, Value(300), []),
+    ok = rocksdb:put(H, Xorbs, <<2:256>>, Value(500), []),
+    ok = rocksdb:close(H),
+    {ok, Db} = xet_metadata:open(xet_metadata_rocksdb, #{dir => Dir}),
+    Stats = xet_metadata:stats(Db),
+    ?assertEqual(2, maps:get(xorbs, Stats)),
+    ?assertEqual(800, maps:get(bytes_on_disk, Stats)),
+    ok = xet_metadata:close(Db).
 
 ring(T) ->
     #{

@@ -32,12 +32,13 @@ curl -s -H "Authorization: Bearer ops-token" \
 ```
 
 ```json
-{"metadata": {"files": 1024, "xorbs": 512, "chunks": 4096}}
+{"metadata": {"files": 1024, "xorbs": 512, "bytes_on_disk": 68719476736, "chunks": 4096}}
 ```
 
 Notes:
 
-- The counts are rocksdb key estimates, not exact.
+- `files`, `xorbs`, and `bytes_on_disk` are exact maintained counters;
+  `chunks` is a rocksdb key estimate.
 - A read or write token is rejected with `403`; only `admin` is
   accepted. No token is `401`.
 - The response grows over later releases (garbage collection and scrub
