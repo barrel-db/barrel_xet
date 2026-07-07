@@ -40,10 +40,12 @@
     key_rotation/1,
     metrics_counters/1,
     metrics_store_and_chunks/1,
-    insufficient_storage/1
+    insufficient_storage/1,
+    admin_delete_file/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
+-define(ADMIN, <<"admin-token">>).
 
 all() ->
     [
@@ -81,7 +83,8 @@ all() ->
         key_rotation,
         metrics_counters,
         metrics_store_and_chunks,
-        insufficient_storage
+        insufficient_storage,
+        admin_delete_file
     ].
 
 init_per_suite(Config) ->
@@ -90,7 +93,8 @@ init_per_suite(Config) ->
     {ok, _} = xet_server:start(#{
         name => xet_api_server,
         data_dir => DataDir,
-        auth => {xet_auth_static, #{tokens => #{?TOKEN => write}}}
+        admin => #{enabled => true},
+        auth => {xet_auth_static, #{tokens => #{?TOKEN => write, ?ADMIN => admin}}}
     }),
     [{data_dir, DataDir} | Config].
 
@@ -745,6 +749,35 @@ metrics_counters(_Config) ->
     Present(<<"xet.xorbs.dedup_hits">>),
     Present(<<"xet.shards.registered">>),
     Present(<<"xet.files.registered">>).
+
+%% DELETE /admin/files/{hash}: admin-scoped, removes the file so it no
+%% longer reconstructs; a write token is refused and a second delete 404s.
+admin_delete_file(_Config) ->
+    World = registered_file([150, 151]),
+    Path = reconstruction_path("/api/v1/reconstructions/", World),
+    HashStr = binary_to_list(xet_hash:to_string(maps:get(file_hash, World))),
+    {200, _, _} = get_json(Path, []),
+    ?assertEqual(403, admin_delete(HashStr, ?TOKEN)),
+    ?assertEqual(204, admin_delete(HashStr, ?ADMIN)),
+    {404, _, _} = get_json(Path, []),
+    {ok, 404, _} = hackney:request(
+        head,
+        base() ++ "/api/v1/files/" ++ HashStr,
+        [{<<"authorization">>, <<"Bearer ", ?TOKEN/binary>>}],
+        <<>>,
+        [{pool, false}]
+    ),
+    ?assertEqual(404, admin_delete(HashStr, ?ADMIN)).
+
+admin_delete(HashStr, Token) ->
+    {ok, Status, _, _} = hackney:request(
+        delete,
+        base() ++ "/admin/files/" ++ HashStr,
+        [{<<"authorization">>, <<"Bearer ", Token/binary>>}],
+        <<>>,
+        [with_body, {pool, false}]
+    ),
+    Status.
 
 %% An impossibly large min_free_bytes makes the preflight reject uploads
 %% with 507 and turns /readyz to 503 listing "disk".

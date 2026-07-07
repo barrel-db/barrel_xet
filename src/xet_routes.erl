@@ -40,7 +40,10 @@ compile(Config) ->
 %% Non-spec admin surface, mounted only when explicitly enabled. Every
 %% route requires the admin scope (see scope_for/2).
 admin_routes(#{admin := #{enabled := true}}, Deadline) ->
-    [{<<"GET">>, <<"/admin/stats">>, fun xet_h_admin:stats/1, route_meta(<<"GET">>, Deadline)}];
+    [
+        {<<"GET">>, <<"/admin/stats">>, fun xet_h_admin:stats/1, route_meta(<<"GET">>, Deadline)},
+        {<<"DELETE">>, <<"/admin/files/:hash">>, fun xet_h_admin:delete_file/1, undefined}
+    ];
 admin_routes(_Config, _Deadline) ->
     [].
 

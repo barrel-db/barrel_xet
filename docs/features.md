@@ -91,7 +91,7 @@ standalone CAS server.
 - [x] T10.6 Maintained counters (bytes, xorbs, files)
 - [x] T10.7 Metadata fold + delete callbacks
 - [x] T10.8 GC guard (registration/sweep exclusion)
-- [ ] T10.9 DELETE /admin/files/{hash}
+- [x] T10.9 DELETE /admin/files/{hash}
 - [x] T10.10 xet_gc: mark-and-sweep of unreferenced xorbs
 - [x] T10.11 FS orphan-blob sweep
 - [x] T10.12 Scrub: verify-at-rest

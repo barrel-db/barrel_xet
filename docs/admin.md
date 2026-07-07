@@ -43,3 +43,17 @@ Notes:
   accepted. No token is `401`.
 - The response grows over later releases (garbage collection and scrub
   status); existing keys stay stable.
+
+## DELETE /admin/files/{hash}
+
+Removes a file record. Its xorbs that no other file references become
+collectable by garbage collection; shared xorbs are untouched.
+
+```sh
+curl -X DELETE -H "Authorization: Bearer ops-token" \
+    http://127.0.0.1:8080/admin/files/<file-hash>
+```
+
+Returns `204` on delete, `404` if the file is not present (so a repeated
+delete is `404`). This is the only way to make stored data eligible for
+collection; the XET protocol has no file-delete operation.
