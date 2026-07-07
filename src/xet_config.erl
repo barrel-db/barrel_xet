@@ -37,6 +37,7 @@
     observability,
     ratelimit,
     request_timeout,
+    scrub,
     security_headers,
     spool_memory_max,
     url_secret,
@@ -194,6 +195,7 @@ validate(Config) ->
         fun check_blob/1,
         fun check_admin/1,
         fun check_gc/1,
+        fun check_scrub/1,
         fun check_misc/1
     ]).
 
@@ -337,19 +339,26 @@ check_admin(#{admin := _}) -> [<<"admin must be false or #{enabled => boolean()}
 check_admin(_Config) -> [].
 
 check_gc(#{gc := #{} = Gc}) ->
-    check_gc_grace(maps:get(grace_seconds, Gc, 1)) ++
-        check_gc_interval(maps:get(interval, Gc, false));
+    check_pos(<<"gc grace_seconds">>, maps:get(grace_seconds, Gc, 1)) ++
+        check_interval(<<"gc">>, maps:get(interval, Gc, false));
 check_gc(#{gc := _}) ->
     [<<"gc must be a map, e.g. #{grace_seconds => 86400, interval => false}">>];
 check_gc(_Config) ->
     [].
 
-check_gc_grace(N) when is_integer(N), N > 0 -> [];
-check_gc_grace(V) -> [format("gc grace_seconds must be a positive integer, got ~tp", [V])].
+check_scrub(#{scrub := #{} = Scrub}) ->
+    check_pos(<<"scrub rate_bytes_per_sec">>, maps:get(rate_bytes_per_sec, Scrub, 1)) ++
+        check_interval(<<"scrub">>, maps:get(interval, Scrub, false));
+check_scrub(#{scrub := _}) ->
+    [<<"scrub must be a map, e.g. #{rate_bytes_per_sec => 33554432, interval => false}">>];
+check_scrub(_Config) ->
+    [].
 
-check_gc_interval(false) -> [];
-check_gc_interval(N) when is_integer(N), N > 0 -> [];
-check_gc_interval(V) -> [format("gc interval must be false or a positive integer, got ~tp", [V])].
+check_interval(_Label, false) ->
+    [];
+check_interval(_Label, N) when is_integer(N), N > 0 -> [];
+check_interval(Label, V) ->
+    [format("~ts interval must be false or a positive integer, got ~tp", [Label, V])].
 
 check_misc(Config) ->
     check_name(maps:get(name, Config, undefined)) ++
@@ -431,6 +440,9 @@ defaults(Config) ->
         %% Garbage collection: unreferenced xorbs older than the grace
         %% window are collectable. Manual-only by default (interval
         %% false); the first runs should be operator-watched.
-        gc => #{grace_seconds => 86400, interval => false}
+        gc => #{grace_seconds => 86400, interval => false},
+        %% Verify-at-rest: read every xorb and re-check its hash, capped
+        %% at rate_bytes_per_sec. Manual-only by default.
+        scrub => #{rate_bytes_per_sec => 33554432, interval => false}
     },
     maps:merge(Defaults, Config).

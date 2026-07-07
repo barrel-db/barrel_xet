@@ -97,3 +97,27 @@ files with no metadata and an mtime older than the grace window (left by
 a put that crashed before registration, or a crash between the metadata
 and blob deletes). The S3 backend does not sweep orphans in this
 release; its object listing is a follow-up.
+
+## Scrub (verify-at-rest)
+
+Scrub reads every stored xorb and confirms it still hashes to its
+address, catching silent corruption. It never deletes anything: a
+corrupt or unreadable xorb is logged and reported for you to restore or
+re-upload. Reads are rate-limited (`scrub => #{rate_bytes_per_sec =>
+33554432}`, default 32 MiB/s) so a pass does not saturate the disk or
+run up an S3 bill; it is manual by default (`scrub => #{interval =>
+Seconds}` to schedule).
+
+```sh
+curl -X POST -H "Authorization: Bearer ops-token" http://127.0.0.1:8080/admin/scrub
+curl -H "Authorization: Bearer ops-token" http://127.0.0.1:8080/admin/scrub
+```
+
+```json
+{"running": false,
+ "last": {"checked": 5000, "corrupt": 1, "read_errors": 0,
+          "findings": [{"hash": "…", "kind": "corrupt"}]}}
+```
+
+Findings are capped at 100 entries; `corrupt` and `read_errors` are the
+full counts.

@@ -82,10 +82,16 @@ init(Config) ->
             start => {xet_server_listener, start_link, [Config]},
             shutdown => 10000
         },
-        %% After the listener: a GC crash must not bounce request serving.
+        %% After the listener: a GC or scrub crash must not bounce request
+        %% serving.
         #{
             id => gc,
             start => {xet_gc, start_link, [Config]},
+            shutdown => 5000
+        },
+        #{
+            id => scrub,
+            start => {xet_scrub, start_link, [Config]},
             shutdown => 5000
         }
     ],

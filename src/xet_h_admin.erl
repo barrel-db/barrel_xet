@@ -7,7 +7,7 @@
 %% later tasks extend the response with GC and scrub status.
 -module(xet_h_admin).
 
--export([stats/1, delete_file/1, gc_trigger/1, gc_status/1]).
+-export([stats/1, delete_file/1, gc_trigger/1, gc_status/1, scrub_trigger/1, scrub_status/1]).
 
 stats(Req) ->
     Name = livery_req:config(server, Req),
@@ -33,6 +33,17 @@ dry_run(Req) ->
     Query = uri_string:dissect_query(livery_req:query(Req)),
     Value = proplists:get_value("dry_run", Query, proplists:get_value(<<"dry_run">>, Query)),
     Value =:= "true" orelse Value =:= <<"true">>.
+
+%% POST /admin/scrub: start a single-flight verify-at-rest pass.
+scrub_trigger(Req) ->
+    Name = livery_req:config(server, Req),
+    {ok, Status} = xet_scrub:trigger(Name),
+    livery_resp:json(202, json:encode(#{status => atom_to_binary(Status)})).
+
+%% GET /admin/scrub: running flag and last run summary.
+scrub_status(Req) ->
+    Name = livery_req:config(server, Req),
+    livery_resp:json(200, json:encode(gc_json(xet_scrub:status(Name)))).
 
 gc_json(#{running := Running, last := Last}) ->
     #{

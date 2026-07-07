@@ -200,6 +200,28 @@ bad_admin_test() ->
     {ok, _} = xet_config:load(valid(#{admin => #{enabled => true}})),
     {ok, _} = xet_config:load(valid(#{admin => false})).
 
+gc_and_scrub_defaults_test() ->
+    {ok, Config} = xet_config:load(valid(#{})),
+    ?assertEqual(#{grace_seconds => 86400, interval => false}, maps:get(gc, Config)),
+    ?assertEqual(#{rate_bytes_per_sec => 33554432, interval => false}, maps:get(scrub, Config)).
+
+bad_gc_test() ->
+    ?assertEqual(
+        [<<"gc grace_seconds must be a positive integer, got 0">>],
+        errors(valid(#{gc => #{grace_seconds => 0}}))
+    ),
+    ?assertEqual(
+        [<<"gc interval must be false or a positive integer, got -1">>],
+        errors(valid(#{gc => #{interval => -1}}))
+    ).
+
+bad_scrub_test() ->
+    ?assertEqual(
+        [<<"scrub rate_bytes_per_sec must be a positive integer, got 0">>],
+        errors(valid(#{scrub => #{rate_bytes_per_sec => 0}}))
+    ),
+    {ok, _} = xet_config:load(valid(#{scrub => #{interval => 3600}})).
+
 bad_blob_test() ->
     ?assertEqual(
         [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>],
