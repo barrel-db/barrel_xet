@@ -16,7 +16,10 @@
     schema_guard/1,
     stats/1,
     counters_no_double_count/1,
-    counters_backfill/1
+    counters_backfill/1,
+    folds/1,
+    delete_file/1,
+    delete_xorb/1
 ]).
 
 all() ->
@@ -31,7 +34,10 @@ all() ->
         schema_guard,
         stats,
         counters_no_double_count,
-        counters_backfill
+        counters_backfill,
+        folds,
+        delete_file,
+        delete_xorb
     ].
 
 init_per_testcase(Case, Config) ->
@@ -198,6 +204,54 @@ counters_no_double_count(Config) ->
     ?assertEqual(2, maps:get(xorbs, Stats)),
     ?assertEqual(2, maps:get(files, Stats)),
     ?assertEqual(800, maps:get(bytes_on_disk, Stats)).
+
+%% fold_files and fold_xorbs visit every record, decoded with its key.
+folds(Config) ->
+    Db = db(Config),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(1)),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(2)),
+    ok = xet_metadata:register_files(Db, [file_meta(1), file_meta(2), file_meta(3)], []),
+    XorbHashes = lists:sort(
+        xet_metadata:fold_xorbs(Db, fun(X, Acc) -> [maps:get(hash, X) | Acc] end, [])
+    ),
+    ?assertEqual([<<1:256>>, <<2:256>>], XorbHashes),
+    FileCount = xet_metadata:fold_files(Db, fun(_F, N) -> N + 1 end, 0),
+    ?assertEqual(3, FileCount).
+
+%% delete_file removes the record and decrements the counter; idempotent.
+delete_file(Config) ->
+    Db = db(Config),
+    ok = xet_metadata:register_files(Db, [file_meta(1), file_meta(2)], []),
+    ok = xet_metadata:delete_file(Db, <<1:256>>),
+    ?assertNot(xet_metadata:file_exists(Db, <<1:256>>)),
+    ?assert(xet_metadata:file_exists(Db, <<2:256>>)),
+    ?assertEqual(1, maps:get(files, xet_metadata:stats(Db))),
+    %% Idempotent second delete.
+    ok = xet_metadata:delete_file(Db, <<1:256>>),
+    ?assertEqual(1, maps:get(files, xet_metadata:stats(Db))).
+
+%% delete_xorb removes the xorb, its owned chunk entries, and decrements
+%% counters; a chunk of the deleted xorb whose dedup index points at a
+%% surviving xorb is left intact.
+delete_xorb(Config) ->
+    Db = db(Config),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(1)),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(2)),
+    %% Both chunk hashes are in xorb 1's entries (<<2>>,<<3>>,<<4>>);
+    %% one indexed to xorb 1 (owned), one to xorb 2 (shared).
+    Owned = <<2:256>>,
+    Shared = <<3:256>>,
+    ok = xet_metadata:register_files(Db, [], [{Owned, <<1:256>>, 0}, {Shared, <<2:256>>, 9}]),
+    ?assertEqual(800, maps:get(bytes_on_disk, xet_metadata:stats(Db))),
+    ok = xet_metadata:delete_xorb(Db, <<1:256>>),
+    ?assertNot(xet_metadata:xorb_exists(Db, <<1:256>>)),
+    ?assert(xet_metadata:xorb_exists(Db, <<2:256>>)),
+    ?assertEqual(1, maps:get(xorbs, xet_metadata:stats(Db))),
+    ?assertEqual(400, maps:get(bytes_on_disk, xet_metadata:stats(Db))),
+    ?assertEqual(not_found, xet_metadata:find_chunk(Db, Owned)),
+    ?assertEqual({ok, {<<2:256>>, 9}}, xet_metadata:find_chunk(Db, Shared)),
+    ok = xet_metadata:delete_xorb(Db, <<1:256>>),
+    ?assertEqual(1, maps:get(xorbs, xet_metadata:stats(Db))).
 
 %% A database written before the counters existed seeds them from its
 %% data on the next open. Simulated with a raw handle that writes xorb

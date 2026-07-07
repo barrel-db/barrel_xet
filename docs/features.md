@@ -89,7 +89,7 @@ standalone CAS server.
 - [x] T10.4 S3 put retry: prove + document
 - [x] T10.5 xorb created_at (schema evolution)
 - [x] T10.6 Maintained counters (bytes, xorbs, files)
-- [ ] T10.7 Metadata fold + delete callbacks
+- [x] T10.7 Metadata fold + delete callbacks
 - [ ] T10.8 GC guard (registration/sweep exclusion)
 - [ ] T10.9 DELETE /admin/files/{hash}
 - [x] T10.10 xet_gc: mark-and-sweep of unreferenced xorbs

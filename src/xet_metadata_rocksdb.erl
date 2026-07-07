@@ -27,6 +27,10 @@
     put_key_ring/2,
     get_url_secret/1,
     put_url_secret/2,
+    fold_files/3,
+    fold_xorbs/3,
+    delete_file/2,
+    delete_xorb/2,
     stats/1
 ]).
 
@@ -207,15 +211,73 @@ read_counter(Handle, Meta, Key) ->
         not_found -> 0
     end.
 
+%% Fold Fun(RawKey, RawValue, Acc) over every entry in a column family.
+fold_cf(Handle, Cf, Fun, Acc0) ->
+    {ok, It} = rocksdb:iterator(Handle, Cf, []),
+    try
+        fold_it(It, rocksdb:iterator_move(It, first), Fun, Acc0)
+    after
+        rocksdb:iterator_close(It)
+    end.
+
+fold_it(_It, {error, invalid_iterator}, _Fun, Acc) ->
+    Acc;
+fold_it(It, {ok, Key, Value}, Fun, Acc) ->
+    fold_it(It, rocksdb:iterator_move(It, next), Fun, Fun(Key, Value, Acc)).
+
+%% Iterate file records, applying Fun(file_meta(), Acc). Used by GC's
+%% mark phase; folds run against a consistent iterator snapshot.
+fold_files(#db{handle = Handle, files = Files}, Fun, Acc0) ->
+    fold_cf(Handle, Files, fun(K, V, Acc) -> Fun(maps:put(file_hash, K, decode(V)), Acc) end, Acc0).
+
+fold_xorbs(#db{handle = Handle, xorbs = Xorbs}, Fun, Acc0) ->
+    fold_cf(Handle, Xorbs, fun(K, V, Acc) -> Fun(maps:put(hash, K, decode(V)), Acc) end, Acc0).
+
+%% Remove a file record (its unique xorbs become collectable). Idempotent.
+delete_file(#db{handle = Handle, files = Files, meta = Meta} = Db, Hash) ->
+    case file_exists(Db, Hash) of
+        false ->
+            ok;
+        true ->
+            with_batch(Handle, fun(Batch) ->
+                ok = rocksdb:batch_delete(Batch, Files, Hash),
+                ok = rocksdb:batch_merge(Batch, Meta, ?COUNTER_FILES, merge_delta(-1))
+            end)
+    end.
+
+%% Remove a xorb: its meta, the chunk-index entries that point at it
+%% (a shared chunk pointing at a survivor is left), and the counters, in
+%% one synced batch. Idempotent; the caller deletes the blob afterwards.
+delete_xorb(#db{handle = Handle, xorbs = Xorbs, chunks = Chunks, meta = Meta} = Db, Hash) ->
+    case get_xorb(Db, Hash) of
+        not_found ->
+            ok;
+        {ok, Xorb} ->
+            Bytes = maps:get(bytes_on_disk, Xorb, 0),
+            Owned = [CH || {CH, _Size} <- maps:get(entries, Xorb), owns_chunk(Db, CH, Hash)],
+            with_batch(Handle, fun(Batch) ->
+                lists:foreach(fun(CH) -> ok = rocksdb:batch_delete(Batch, Chunks, CH) end, Owned),
+                ok = rocksdb:batch_delete(Batch, Xorbs, Hash),
+                ok = rocksdb:batch_merge(Batch, Meta, ?COUNTER_XORBS, merge_delta(-1)),
+                ok = rocksdb:batch_merge(Batch, Meta, ?COUNTER_BYTES, merge_delta(-Bytes))
+            end)
+    end.
+
+owns_chunk(Db, ChunkHash, XorbHash) ->
+    case find_chunk(Db, ChunkHash) of
+        {ok, {XorbHash, _Index}} -> true;
+        _Other -> false
+    end.
+
 %% Seed the counters once from the existing data, for a DB created before
-%% they were maintained. A fresh DB scans nothing and seeds zeros.
-ensure_counters(#db{handle = Handle, meta = Meta} = Db) ->
+%% they were maintained. A fresh DB folds nothing and seeds zeros.
+ensure_counters(#db{handle = Handle, xorbs = Xorbs, files = Files, meta = Meta}) ->
     case rocksdb:get(Handle, Meta, ?COUNTERS_KEY, []) of
         {ok, _} ->
             ok;
         not_found ->
-            {XorbN, Bytes} = scan_xorbs(Db),
-            FileN = scan_files(Db),
+            {XorbN, Bytes} = fold_cf(Handle, Xorbs, fun sum_bytes/3, {0, 0}),
+            FileN = fold_cf(Handle, Files, fun(_K, _V, N) -> N + 1 end, 0),
             with_batch(Handle, fun(Batch) ->
                 ok = rocksdb:batch_put(Batch, Meta, ?COUNTER_XORBS, term_to_binary(XorbN)),
                 ok = rocksdb:batch_put(Batch, Meta, ?COUNTER_FILES, term_to_binary(FileN)),
@@ -226,32 +288,8 @@ ensure_counters(#db{handle = Handle, meta = Meta} = Db) ->
             Error
     end.
 
-scan_xorbs(#db{handle = Handle, xorbs = Xorbs}) ->
-    {ok, It} = rocksdb:iterator(Handle, Xorbs, []),
-    try
-        sum_xorbs(It, rocksdb:iterator_move(It, first), 0, 0)
-    after
-        rocksdb:iterator_close(It)
-    end.
-
-sum_xorbs(_It, {error, invalid_iterator}, N, Bytes) ->
-    {N, Bytes};
-sum_xorbs(It, {ok, _Key, Value}, N, Bytes) ->
-    B = maps:get(bytes_on_disk, decode(Value), 0),
-    sum_xorbs(It, rocksdb:iterator_move(It, next), N + 1, Bytes + B).
-
-scan_files(#db{handle = Handle, files = Files}) ->
-    {ok, It} = rocksdb:iterator(Handle, Files, []),
-    try
-        count_keys(It, rocksdb:iterator_move(It, first), 0)
-    after
-        rocksdb:iterator_close(It)
-    end.
-
-count_keys(_It, {error, invalid_iterator}, N) ->
-    N;
-count_keys(It, {ok, _Key, _Value}, N) ->
-    count_keys(It, rocksdb:iterator_move(It, next), N + 1).
+sum_bytes(_Key, Value, {N, Bytes}) ->
+    {N + 1, Bytes + maps:get(bytes_on_disk, decode(Value), 0)}.
 
 encode(Term) ->
     <<?VALUE_VERSION, (term_to_binary(Term, [{minor_version, 2}]))/binary>>.

@@ -20,6 +20,10 @@
     put_key_ring/2,
     get_url_secret/1,
     put_url_secret/2,
+    fold_files/3,
+    fold_xorbs/3,
+    delete_file/2,
+    delete_xorb/2,
     stats/1
 ]).
 
@@ -72,6 +76,10 @@
 -callback put_key_ring(term(), key_ring()) -> ok | {error, term()}.
 -callback get_url_secret(term()) -> {ok, binary()} | not_found.
 -callback put_url_secret(term(), binary()) -> ok | {error, term()}.
+-callback fold_files(term(), fun((file_meta(), Acc) -> Acc), Acc) -> Acc.
+-callback fold_xorbs(term(), fun((xorb_meta(), Acc) -> Acc), Acc) -> Acc.
+-callback delete_file(term(), xet_hash:hash()) -> ok | {error, term()}.
+-callback delete_xorb(term(), xet_hash:hash()) -> ok | {error, term()}.
 -callback stats(term()) -> map().
 
 -spec open(module(), map()) -> {ok, handle()} | {error, term()}.
@@ -119,6 +127,22 @@ get_url_secret({Mod, State}) -> Mod:get_url_secret(State).
 
 -spec put_url_secret(handle(), binary()) -> ok | {error, term()}.
 put_url_secret({Mod, State}, Secret) -> Mod:put_url_secret(State, Secret).
+
+%% Fold over every file or xorb record. Used by GC (mark phase) and
+%% scrub; runs against a consistent iterator snapshot of the backend.
+-spec fold_files(handle(), fun((file_meta(), Acc) -> Acc), Acc) -> Acc.
+fold_files({Mod, State}, Fun, Acc) -> Mod:fold_files(State, Fun, Acc).
+
+-spec fold_xorbs(handle(), fun((xorb_meta(), Acc) -> Acc), Acc) -> Acc.
+fold_xorbs({Mod, State}, Fun, Acc) -> Mod:fold_xorbs(State, Fun, Acc).
+
+%% Delete a file record, or a xorb record with its owned chunk-index
+%% entries and counter decrements. Both idempotent.
+-spec delete_file(handle(), xet_hash:hash()) -> ok | {error, term()}.
+delete_file({Mod, State}, Hash) -> Mod:delete_file(State, Hash).
+
+-spec delete_xorb(handle(), xet_hash:hash()) -> ok | {error, term()}.
+delete_xorb({Mod, State}, Hash) -> Mod:delete_xorb(State, Hash).
 
 -spec stats(handle()) -> map().
 stats({Mod, State}) -> Mod:stats(State).
