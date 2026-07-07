@@ -87,7 +87,7 @@ standalone CAS server.
 - [x] T10.2 Disk-full handling (507 + readiness)
 - [x] T10.3 Reconstruction graceful missing-xorb
 - [x] T10.4 S3 put retry: prove + document
-- [ ] T10.5 xorb created_at (schema evolution)
+- [x] T10.5 xorb created_at (schema evolution)
 - [ ] T10.6 Maintained counters (bytes, xorbs, files)
 - [ ] T10.7 Metadata fold + delete callbacks
 - [ ] T10.8 GC guard (registration/sweep exclusion)

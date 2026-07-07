@@ -12,6 +12,7 @@
     reopen_persistence/1,
     key_ring/1,
     url_secret/1,
+    created_at_optional/1,
     schema_guard/1,
     stats/1
 ]).
@@ -24,6 +25,7 @@ all() ->
         reopen_persistence,
         key_ring,
         url_secret,
+        created_at_optional,
         schema_guard,
         stats
     ].
@@ -138,6 +140,18 @@ url_secret(Config) ->
     Secret2 = crypto:strong_rand_bytes(32),
     ok = xet_metadata:put_url_secret(Db, Secret2),
     ?assertEqual({ok, Secret2}, xet_metadata:get_url_secret(Db)).
+
+%% created_at is additive: a record written without it (pre-upgrade)
+%% still reads, defaulting to 0, and a record with it round-trips.
+created_at_optional(Config) ->
+    Db = db(Config),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(500)),
+    {ok, Old} = xet_metadata:get_xorb(Db, <<500:256>>),
+    ?assertEqual(0, maps:get(created_at, Old, 0)),
+    New = (xorb_meta(501))#{created_at => 1700000000},
+    ok = xet_metadata:register_xorb(Db, New),
+    {ok, Got} = xet_metadata:get_xorb(Db, <<501:256>>),
+    ?assertEqual(1700000000, maps:get(created_at, Got)).
 
 schema_guard(Config) ->
     %% A database written with a different schema version must refuse to

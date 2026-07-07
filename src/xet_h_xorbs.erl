@@ -66,7 +66,10 @@ commit(#{metadata := Metadata, blob := Blob}, Ns, Hash, Bin, Decoded) ->
         ),
         boundary_offsets => maps:get(boundary_offsets, Decoded),
         unpacked_offsets => maps:get(unpacked_offsets, Decoded),
-        bytes_on_disk => byte_size(Bin)
+        bytes_on_disk => byte_size(Bin),
+        %% Registration time, the age gate for GC. Additive field: older
+        %% records without it read as 0 (collectable if unreferenced).
+        created_at => erlang:system_time(second)
     },
     maybe
         ok ?= xet_blob_store:put(Blob, Ns, Hash, Bin),

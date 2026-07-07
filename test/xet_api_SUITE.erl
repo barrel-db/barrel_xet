@@ -140,7 +140,9 @@ upload_roundtrip(_Config) ->
     Env = xet_server:env(xet_api_server),
     ?assert(xet_blob_store:exists(maps:get(blob, Env), <<"default">>, maps:get(hash, Enc))),
     {ok, Meta} = xet_metadata:get_xorb(maps:get(metadata, Env), maps:get(hash, Enc)),
-    ?assertEqual(maps:get(boundary_offsets, Enc), maps:get(boundary_offsets, Meta)).
+    ?assertEqual(maps:get(boundary_offsets, Enc), maps:get(boundary_offsets, Meta)),
+    %% Registration stamps created_at (the GC age gate).
+    ?assert(maps:get(created_at, Meta) > 0).
 
 upload_v1_alias(_Config) ->
     Enc = sample_xorb([4, 5]),

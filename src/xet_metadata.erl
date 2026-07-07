@@ -31,7 +31,10 @@
     entries := [xet_hash:entry()],
     boundary_offsets := [pos_integer()],
     unpacked_offsets := [pos_integer()],
-    bytes_on_disk := pos_integer()
+    bytes_on_disk := pos_integer(),
+    %% Registration time (Unix seconds). Additive: absent in records
+    %% written before this field; readers default it to 0.
+    created_at => non_neg_integer()
 }.
 -type file_meta() :: #{
     file_hash := xet_hash:hash(),
