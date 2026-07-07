@@ -91,3 +91,9 @@ gone and fails cleanly, so no file is left pointing at a deleted xorb.
 Do not run the first collection within one grace window of upgrading
 from a release that did not stamp xorb creation times: those records
 default to age zero and would be eligible immediately if unreferenced.
+
+Collection also reclaims orphaned blobs on the filesystem backend: blob
+files with no metadata and an mtime older than the grace window (left by
+a put that crashed before registration, or a crash between the metadata
+and blob deletes). The S3 backend does not sweep orphans in this
+release; its object listing is a follow-up.

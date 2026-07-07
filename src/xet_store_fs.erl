@@ -10,7 +10,10 @@
 
 -behaviour(xet_blob_store).
 
+-include_lib("kernel/include/file.hrl").
+
 -export([open/1, close/1, put/4, get_range/5, size/3, exists/3, delete/3, local_path/3]).
+-export([fold_blobs/3]).
 
 open(#{dir := Root}) ->
     ok = filelib:ensure_path(Root),
@@ -122,6 +125,41 @@ blob_path(#{root := Root}, Ns, Hash) ->
                 )};
         false ->
             {error, bad_namespace}
+    end.
+
+%% Fold Fun({Ns, Hash, MtimePosix}, Acc) over every stored blob. Used by
+%% the orphan-blob sweep; FS-specific, not a blob-store callback.
+fold_blobs(#{root := Root}, Fun, Acc0) ->
+    RootDepth = length(filename:split(Root)),
+    filelib:fold_files(
+        Root,
+        "\\.xorb$",
+        true,
+        fun(Path, Acc) ->
+            case blob_of_path(RootDepth, Path) of
+                {ok, Entry} -> Fun(Entry, Acc);
+                error -> Acc
+            end
+        end,
+        Acc0
+    ).
+
+blob_of_path(RootDepth, Path) ->
+    case lists:nthtail(RootDepth, filename:split(Path)) of
+        [Ns, _H01, _H23, File] ->
+            HexBin = list_to_binary(filename:rootname(File)),
+            case xet_hash:is_hash_string(HexBin) of
+                true -> {ok, {list_to_binary(Ns), xet_hash:from_string(HexBin), mtime(Path)}};
+                false -> error
+            end;
+        _Other ->
+            error
+    end.
+
+mtime(Path) ->
+    case file:read_file_info(Path, [{time, posix}]) of
+        {ok, Info} -> Info#file_info.mtime;
+        _ -> 0
     end.
 
 sweep_tmp(Root) ->

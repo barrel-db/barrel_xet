@@ -15,7 +15,10 @@
     grace_protects_young/1,
     delete_file_then_gc/1,
     dry_run_reports_without_deleting/1,
-    registration_race_keeps_files_consistent/1
+    registration_race_keeps_files_consistent/1,
+    orphan_blob_swept/1,
+    young_orphan_kept/1,
+    registered_blob_not_orphan/1
 ]).
 
 -define(GRACE, 100).
@@ -27,7 +30,10 @@ all() ->
         grace_protects_young,
         delete_file_then_gc,
         dry_run_reports_without_deleting,
-        registration_race_keeps_files_consistent
+        registration_race_keeps_files_consistent,
+        orphan_blob_swept,
+        young_orphan_kept,
+        registered_blob_not_orphan
     ].
 
 init_per_testcase(Case, Config) ->
@@ -86,6 +92,24 @@ exists(Config, Hash) ->
 old() -> erlang:system_time(second) - 10 * ?GRACE.
 now_s() -> erlang:system_time(second).
 
+%% Write a blob with no metadata (an orphan), setting its mtime AgeSeconds
+%% in the past.
+put_orphan(Config, N, AgeSeconds) ->
+    #{blob := Blob} = env(Config),
+    Hash = <<N:256>>,
+    ok = xet_blob_store:put(Blob, <<"default">>, Hash, binary:copy(<<"o">>, 100)),
+    {ok, Path} = xet_blob_store:local_path(Blob, <<"default">>, Hash),
+    ok = age_blob(Path, AgeSeconds),
+    Hash.
+
+age_blob(Path, AgeSeconds) ->
+    Seconds = calendar:datetime_to_gregorian_seconds(calendar:local_time()) - AgeSeconds,
+    ok = file:change_time(Path, calendar:gregorian_seconds_to_datetime(Seconds)).
+
+blob_exists(Config, Hash) ->
+    #{blob := Blob} = env(Config),
+    xet_blob_store:exists(Blob, <<"default">>, Hash).
+
 run_gc(Config, Opts) ->
     Name = proplists:get_value(name, Config),
     {ok, started} = xet_gc:trigger(Name, Opts),
@@ -143,6 +167,34 @@ dry_run_reports_without_deleting(Config) ->
     ?assertEqual(1, maps:get(deleted_xorbs, Result)),
     %% Nothing actually removed.
     ?assertEqual({true, true}, exists(Config, Hash)).
+
+%% An aged blob with no metadata (a put that crashed before register) is
+%% reclaimed.
+orphan_blob_swept(Config) ->
+    Hash = put_orphan(Config, 1, 10 * ?GRACE),
+    ?assert(blob_exists(Config, Hash)),
+    Result = run_gc(Config, #{}),
+    ?assertEqual(1, maps:get(orphan_blobs, Result)),
+    ?assertEqual(100, maps:get(orphan_bytes, Result)),
+    ?assertNot(blob_exists(Config, Hash)).
+
+%% A recent orphan is left alone (it may be an upload mid-flight).
+young_orphan_kept(Config) ->
+    Hash = put_orphan(Config, 1, 0),
+    Result = run_gc(Config, #{}),
+    ?assertEqual(0, maps:get(orphan_blobs, Result)),
+    ?assert(blob_exists(Config, Hash)).
+
+%% A blob with metadata is never an orphan, even when its file is aged.
+registered_blob_not_orphan(Config) ->
+    Hash = put_xorb(Config, 1, old()),
+    ok = register_ref(Config, 500, Hash),
+    #{blob := Blob} = env(Config),
+    {ok, Path} = xet_blob_store:local_path(Blob, <<"default">>, Hash),
+    ok = age_blob(Path, 10 * ?GRACE),
+    Result = run_gc(Config, #{}),
+    ?assertEqual(0, maps:get(orphan_blobs, Result)),
+    ?assert(blob_exists(Config, Hash)).
 
 %% A registration that references a collectable xorb concurrently with a
 %% sweep must never leave a file pointing at a deleted xorb: either the

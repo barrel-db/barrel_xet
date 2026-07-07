@@ -74,20 +74,25 @@ commit(#{metadata := Metadata, blob := Blob}, Ns, Hash, Bin, Decoded) ->
         %% records without it read as 0 (collectable if unreferenced).
         created_at => erlang:system_time(second)
     },
-    maybe
-        ok ?= xet_blob_store:put(Blob, Ns, Hash, Bin),
-        ok ?= xet_metadata:register_xorb(Metadata, Meta),
-        xet_metrics:count(<<"xet.xorbs.uploaded">>, 1),
-        xet_metrics:count(<<"xet.xorbs.uploaded.bytes">>, byte_size(Bin)),
-        reply_inserted(true)
-    else
-        {error, Reason} ->
-            logger:error(
-                "xorb commit failed for ~ts/~ts: ~p",
-                [Ns, xet_hash:to_string(Hash), Reason]
-            ),
-            xet_h_upload:storage_error(Reason)
-    end.
+    %% The blob put and metadata register run in the GC guard's shared
+    %% section, so the orphan-blob sweep (which deletes blobs that have no
+    %% metadata) cannot delete this blob between the two steps.
+    xet_gc_guard:in_registration(fun() ->
+        maybe
+            ok ?= xet_blob_store:put(Blob, Ns, Hash, Bin),
+            ok ?= xet_metadata:register_xorb(Metadata, Meta),
+            xet_metrics:count(<<"xet.xorbs.uploaded">>, 1),
+            xet_metrics:count(<<"xet.xorbs.uploaded.bytes">>, byte_size(Bin)),
+            reply_inserted(true)
+        else
+            {error, Reason} ->
+                logger:error(
+                    "xorb commit failed for ~ts/~ts: ~p",
+                    [Ns, xet_hash:to_string(Hash), Reason]
+                ),
+                xet_h_upload:storage_error(Reason)
+        end
+    end).
 
 head(Req) ->
     Env = xet_server:env(livery_req:config(server, Req)),
