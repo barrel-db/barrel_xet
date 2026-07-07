@@ -41,7 +41,8 @@
     metrics_counters/1,
     metrics_store_and_chunks/1,
     insufficient_storage/1,
-    admin_delete_file/1
+    admin_delete_file/1,
+    admin_gc/1
 ]).
 
 -define(TOKEN, <<"write-token">>).
@@ -84,7 +85,8 @@ all() ->
         metrics_counters,
         metrics_store_and_chunks,
         insufficient_storage,
-        admin_delete_file
+        admin_delete_file,
+        admin_gc
     ].
 
 init_per_suite(Config) ->
@@ -768,6 +770,28 @@ admin_delete_file(_Config) ->
         [{pool, false}]
     ),
     ?assertEqual(404, admin_delete(HashStr, ?ADMIN)).
+
+%% POST /admin/gc starts a run (admin scope); GET /admin/gc reports it.
+admin_gc(_Config) ->
+    {ok, 202, _, Body} = admin_req(post, "/admin/gc", ?ADMIN),
+    ?assert(
+        lists:member(maps:get(<<"status">>, json:decode(Body)), [
+            <<"started">>, <<"already_running">>
+        ])
+    ),
+    %% A write token cannot trigger GC.
+    {ok, 403, _, _} = admin_req(post, "/admin/gc", ?TOKEN),
+    {ok, 200, _, SBody} = admin_req(get, "/admin/gc", ?ADMIN),
+    ?assert(is_boolean(maps:get(<<"running">>, json:decode(SBody)))).
+
+admin_req(Method, Path, Token) ->
+    hackney:request(
+        Method,
+        base() ++ Path,
+        [{<<"authorization">>, <<"Bearer ", Token/binary>>}],
+        <<>>,
+        [with_body, {pool, false}]
+    ).
 
 admin_delete(HashStr, Token) ->
     {ok, Status, _, _} = hackney:request(

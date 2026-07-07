@@ -57,3 +57,37 @@ curl -X DELETE -H "Authorization: Bearer ops-token" \
 Returns `204` on delete, `404` if the file is not present (so a repeated
 delete is `404`). This is the only way to make stored data eligible for
 collection; the XET protocol has no file-delete operation.
+
+## Garbage collection
+
+Collection sweeps xorbs that no file references and that are older than
+the grace window (`gc => #{grace_seconds => 86400}`, default 1 day). It
+is manual by default; set `gc => #{interval => Seconds}` to run it on a
+timer. A run is single-flight.
+
+Start a run:
+
+```sh
+curl -X POST -H "Authorization: Bearer ops-token" \
+    "http://127.0.0.1:8080/admin/gc?dry_run=true"
+```
+
+`dry_run=true` reports what a real run would collect without deleting
+anything. Check status and the last run:
+
+```sh
+curl -H "Authorization: Bearer ops-token" http://127.0.0.1:8080/admin/gc
+```
+
+```json
+{"running": false,
+ "last": {"dry_run": false, "candidates": 12, "deleted_xorbs": 12, "deleted_bytes": 4096}}
+```
+
+A concurrent upload is never at risk: a registration that references a
+xorb during a sweep either wins (the xorb is kept) or finds it already
+gone and fails cleanly, so no file is left pointing at a deleted xorb.
+
+Do not run the first collection within one grace window of upgrading
+from a release that did not stamp xorb creation times: those records
+default to age zero and would be eligible immediately if unreferenced.

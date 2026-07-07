@@ -42,7 +42,9 @@ compile(Config) ->
 admin_routes(#{admin := #{enabled := true}}, Deadline) ->
     [
         {<<"GET">>, <<"/admin/stats">>, fun xet_h_admin:stats/1, route_meta(<<"GET">>, Deadline)},
-        {<<"DELETE">>, <<"/admin/files/:hash">>, fun xet_h_admin:delete_file/1, undefined}
+        {<<"DELETE">>, <<"/admin/files/:hash">>, fun xet_h_admin:delete_file/1, undefined},
+        {<<"POST">>, <<"/admin/gc">>, fun xet_h_admin:gc_trigger/1, undefined},
+        {<<"GET">>, <<"/admin/gc">>, fun xet_h_admin:gc_status/1, route_meta(<<"GET">>, Deadline)}
     ];
 admin_routes(_Config, _Deadline) ->
     [].

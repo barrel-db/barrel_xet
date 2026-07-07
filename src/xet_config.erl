@@ -21,6 +21,7 @@
     data_dir,
     data_ratelimit,
     external_url,
+    gc,
     host,
     http,
     http3,
@@ -192,6 +193,7 @@ validate(Config) ->
         fun check_security_headers/1,
         fun check_blob/1,
         fun check_admin/1,
+        fun check_gc/1,
         fun check_misc/1
     ]).
 
@@ -334,6 +336,21 @@ check_admin(#{admin := #{} = M}) when map_size(M) =:= 0 -> [];
 check_admin(#{admin := _}) -> [<<"admin must be false or #{enabled => boolean()}">>];
 check_admin(_Config) -> [].
 
+check_gc(#{gc := #{} = Gc}) ->
+    check_gc_grace(maps:get(grace_seconds, Gc, 1)) ++
+        check_gc_interval(maps:get(interval, Gc, false));
+check_gc(#{gc := _}) ->
+    [<<"gc must be a map, e.g. #{grace_seconds => 86400, interval => false}">>];
+check_gc(_Config) ->
+    [].
+
+check_gc_grace(N) when is_integer(N), N > 0 -> [];
+check_gc_grace(V) -> [format("gc grace_seconds must be a positive integer, got ~tp", [V])].
+
+check_gc_interval(false) -> [];
+check_gc_interval(N) when is_integer(N), N > 0 -> [];
+check_gc_interval(V) -> [format("gc interval must be false or a positive integer, got ~tp", [V])].
+
 check_misc(Config) ->
     check_name(maps:get(name, Config, undefined)) ++
         check_secret(maps:get(url_secret, Config, undefined)) ++
@@ -410,6 +427,10 @@ defaults(Config) ->
         %% One structured logger line per request.
         access_log => true,
         %% Non-spec admin endpoints (/admin/*) are off unless enabled.
-        admin => #{enabled => false}
+        admin => #{enabled => false},
+        %% Garbage collection: unreferenced xorbs older than the grace
+        %% window are collectable. Manual-only by default (interval
+        %% false); the first runs should be operator-watched.
+        gc => #{grace_seconds => 86400, interval => false}
     },
     maps:merge(Defaults, Config).
