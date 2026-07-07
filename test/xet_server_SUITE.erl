@@ -27,7 +27,8 @@
     storage_error_logged/1,
     readyz/1,
     admin_stats/1,
-    spool_startup_sweep/1
+    spool_startup_sweep/1,
+    reconstruction_missing_xorb/1
 ]).
 
 all() ->
@@ -51,7 +52,8 @@ all() ->
         storage_error_logged,
         readyz,
         admin_stats,
-        spool_startup_sweep
+        spool_startup_sweep,
+        reconstruction_missing_xorb
     ].
 
 init_per_suite(Config) ->
@@ -310,6 +312,38 @@ recv_access_event(Timeout) ->
             recv_access_event(Timeout)
     after Timeout ->
         error(no_access_event)
+    end.
+
+%% A file whose term references a xorb the metadata does not have (a
+%% data inconsistency) answers 500 and logs, without crashing the
+%% request process. Registering the file directly skips the shard
+%% handler's existence check, producing the inconsistency.
+reconstruction_missing_xorb(Config) ->
+    Metadata = maps:get(metadata, xet_server:env(xet_test_server)),
+    FileHash = <<77:256>>,
+    Term = #{cas_hash => <<99:256>>, unpacked_len => 100, chunk_start => 0, chunk_end => 1},
+    ok = xet_metadata:register_files(
+        Metadata,
+        [#{file_hash => FileHash, total_len => 100, terms => [Term]}],
+        []
+    ),
+    ok = logger:add_handler(xet_capture, ?MODULE, #{
+        level => error,
+        config => #{pid => self()},
+        formatter => {logger_formatter, #{single_line => true}}
+    }),
+    try
+        Path = "/api/v1/reconstructions/" ++ binary_to_list(xet_hash:to_string(FileHash)),
+        {Status, _, Body} = get_(base(Config) ++ Path, [
+            {<<"authorization">>, <<"Bearer read-token">>}
+        ]),
+        ?assertEqual(500, Status),
+        ?assertEqual(#{<<"error">> => <<"inconsistent_metadata">>}, json:decode(Body)),
+        ok = recv_log_matching(<<"missing xorb">>, 5000),
+        %% The server survives: a normal request still works.
+        {200, _, _} = get_(base(Config) ++ "/healthz", [])
+    after
+        logger:remove_handler(xet_capture)
     end.
 
 %% Boot reclaims orphaned upload.*.tmp spool files left by a crash,

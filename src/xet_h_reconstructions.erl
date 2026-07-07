@@ -21,15 +21,35 @@ get_v2(Req) ->
 
 serve(Req, Render) ->
     Env = xet_server:env(livery_req:config(server, Req)),
-    maybe
-        {ok, Hash} ?= file_hash(Req),
-        {ok, FileMeta} ?= lookup(Env, Hash),
-        {ok, Range} ?= parse_range(Req),
-        {ok, Plan} ?= plan(Env, FileMeta, Range),
-        Rendered = Render(Plan, render_ctx(Req, Env)),
-        respond(Rendered)
-    else
-        {error, Resp} -> Resp
+    try
+        maybe
+            {ok, Hash} ?= file_hash(Req),
+            {ok, FileMeta} ?= lookup(Env, Hash),
+            {ok, Range} ?= parse_range(Req),
+            {ok, Plan} ?= plan(Env, FileMeta, Range),
+            Rendered = Render(Plan, render_ctx(Req, Env)),
+            respond(Rendered)
+        else
+            {error, Resp} -> Resp
+        end
+    catch
+        %% A file references a xorb the metadata no longer has: log
+        %% loudly (a data inconsistency) and answer 500 instead of
+        %% crashing the request process on a badmatch.
+        error:{missing_xorb, MissingHash} ->
+            logger:error(
+                "reconstruction references missing xorb ~ts (data inconsistency)",
+                [xet_hash:to_string(MissingHash)]
+            ),
+            xet_routes:error_response(500, <<"inconsistent_metadata">>)
+    end.
+
+%% Load a xorb the plan depends on, or signal the inconsistency to
+%% serve/2's handler.
+fetch_xorb(Metadata, CasHash) ->
+    case xet_metadata:get_xorb(Metadata, CasHash) of
+        {ok, Xorb} -> Xorb;
+        not_found -> error({missing_xorb, CasHash})
     end.
 
 head_file(Req) ->
@@ -67,7 +87,7 @@ parse_range(Req) ->
 
 plan(#{metadata := Metadata}, FileMeta, Range) ->
     InfoFun = fun(CasHash) ->
-        {ok, Xorb} = xet_metadata:get_xorb(Metadata, CasHash),
+        Xorb = fetch_xorb(Metadata, CasHash),
         maps:with([unpacked_offsets, boundary_offsets], Xorb)
     end,
     Terms = maps:get(terms, FileMeta),
@@ -86,7 +106,7 @@ plan(#{metadata := Metadata}, FileMeta, Range) ->
 render_ctx(Req, #{metadata := Metadata, blob := Blob, config := Config} = _Env) ->
     Ttl = maps:get(url_ttl, Config),
     UrlFun = fun(CasHash, _ByteRange) ->
-        {ok, Xorb} = xet_metadata:get_xorb(Metadata, CasHash),
+        Xorb = fetch_xorb(Metadata, CasHash),
         Ns = maps:get(ns, Xorb, <<"default">>),
         case xet_blob_store:presign(Blob, Ns, CasHash, Ttl) of
             {ok, Url} -> Url;
@@ -94,7 +114,7 @@ render_ctx(Req, #{metadata := Metadata, blob := Blob, config := Config} = _Env) 
         end
     end,
     BoundaryFun = fun(CasHash) ->
-        {ok, Xorb} = xet_metadata:get_xorb(Metadata, CasHash),
+        Xorb = fetch_xorb(Metadata, CasHash),
         maps:get(boundary_offsets, Xorb)
     end,
     #{url => UrlFun, boundaries => BoundaryFun}.
