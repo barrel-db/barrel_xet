@@ -30,6 +30,7 @@ start_link(Config) ->
 init(#{name := Name} = Config0) ->
     process_flag(trap_exit, true),
     ok = xet_disk:ensure_started(),
+    ok = xet_gc_guard:init(),
     DataDir = maps:get(data_dir, Config0),
     MetaDir = filename:join(DataDir, "metadata"),
     maybe

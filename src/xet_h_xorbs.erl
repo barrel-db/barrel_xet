@@ -22,6 +22,9 @@ upload_checked(Req, Env, Ns, Hash) ->
     #{metadata := Metadata, config := Config} = Env,
     case xet_metadata:xorb_exists(Metadata, Hash) of
         true ->
+            %% Re-uploading an existing xorb marks it in-use, so a sweep
+            %% in progress will not collect it this round.
+            xet_gc_guard:note_referenced([Hash]),
             xet_metrics:count(<<"xet.xorbs.dedup_hits">>, 1),
             reply_inserted(false);
         false ->

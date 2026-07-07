@@ -46,22 +46,29 @@ handle_shard(Env, Bin) ->
             xet_routes:error_response(400, atom_to_binary(Reason))
     end.
 
+%% The whole validate-and-register runs in the GC guard's shared
+%% section, with the referenced xorbs noted first: GC cannot delete a
+%% xorb between the existence check here and the file registration, and a
+%% sweep that already marked will see the note and skip these xorbs.
 validate_shard(#{metadata := Metadata} = Env, #{files := Files, cas := Cas}) ->
-    maybe
-        {ok, Xorbs} ?= load_referenced_xorbs(Metadata, Files, Cas),
-        ok ?= check_cas_layout(Cas, Xorbs),
-        ok ?= check_files(Files, Xorbs),
-        register_shard(Env, Files, Cas, Xorbs)
-    else
-        {error, Reason} -> xet_routes:error_response(400, Reason)
-    end.
+    Referenced = referenced_hashes(Files, Cas),
+    xet_gc_guard:in_registration(fun() ->
+        xet_gc_guard:note_referenced(Referenced),
+        maybe
+            {ok, Xorbs} ?= load_xorbs(Referenced, Metadata, #{}),
+            ok ?= check_cas_layout(Cas, Xorbs),
+            ok ?= check_files(Files, Xorbs),
+            register_shard(Env, Files, Cas, Xorbs)
+        else
+            {error, Reason} -> xet_routes:error_response(400, Reason)
+        end
+    end).
 
-load_referenced_xorbs(Metadata, Files, Cas) ->
-    Referenced = lists:usort(
+referenced_hashes(Files, Cas) ->
+    lists:usort(
         [maps:get(cas_hash, T) || F <- Files, T <- maps:get(terms, F)] ++
             [maps:get(cas_hash, B) || B <- Cas]
-    ),
-    load_xorbs(Referenced, Metadata, #{}).
+    ).
 
 load_xorbs([], _Metadata, Acc) ->
     {ok, Acc};
