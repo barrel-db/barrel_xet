@@ -222,6 +222,13 @@ bad_scrub_test() ->
     ),
     {ok, _} = xet_config:load(valid(#{scrub => #{interval => 3600}})).
 
+bad_backup_dir_test() ->
+    ?assertEqual(
+        [<<"backup_dir must be a non-empty path">>],
+        errors(valid(#{backup_dir => <<>>}))
+    ),
+    {ok, _} = xet_config:load(valid(#{backup_dir => "/var/backups/xet"})).
+
 bad_blob_test() ->
     ?assertEqual(
         [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>],

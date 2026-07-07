@@ -28,7 +28,8 @@
     readyz/1,
     admin_stats/1,
     spool_startup_sweep/1,
-    reconstruction_missing_xorb/1
+    reconstruction_missing_xorb/1,
+    admin_backup/1
 ]).
 
 all() ->
@@ -53,7 +54,8 @@ all() ->
         readyz,
         admin_stats,
         spool_startup_sweep,
-        reconstruction_missing_xorb
+        reconstruction_missing_xorb,
+        admin_backup
     ].
 
 init_per_suite(Config) ->
@@ -367,6 +369,51 @@ spool_startup_sweep(Config) ->
     after
         ok = xet_server:stop(xet_spoolsweep_server)
     end.
+
+%% POST /admin/backup checkpoints the metadata store; 400 without a
+%% backup_dir, 200 with one (and the checkpoint opens as a fresh DB).
+admin_backup(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "backupsrv"),
+    BackupDir = filename:join(Dir, "backups"),
+    Auth = {xet_auth_static, #{tokens => #{<<"root">> => admin}}},
+    {ok, _} = xet_server:start(#{
+        name => xet_nobackup_server,
+        data_dir => Dir,
+        admin => #{enabled => true},
+        auth => Auth
+    }),
+    NoBackupBase = base_url(xet_nobackup_server),
+    ?assertEqual(400, backup_status(NoBackupBase)),
+    ok = xet_server:stop(xet_nobackup_server),
+    {ok, _} = xet_server:start(#{
+        name => xet_backup_server,
+        data_dir => filename:join(Dir, "with"),
+        admin => #{enabled => true},
+        backup_dir => BackupDir,
+        auth => Auth
+    }),
+    try
+        {ok, 200, _, Body} = hackney:request(
+            post,
+            base_url(xet_backup_server) ++ "/admin/backup",
+            [{<<"authorization">>, <<"Bearer root">>}],
+            <<>>,
+            [with_body, {pool, false}]
+        ),
+        Path = binary_to_list(maps:get(<<"path">>, json:decode(Body))),
+        {ok, Copy} = xet_metadata:open(xet_metadata_rocksdb, #{dir => Path}),
+        ok = xet_metadata:close(Copy)
+    after
+        ok = xet_server:stop(xet_backup_server)
+    end.
+
+backup_status(Base) ->
+    {ok, Status, _, _} = hackney:request(
+        post, Base ++ "/admin/backup", [{<<"authorization">>, <<"Bearer root">>}], <<>>, [
+            with_body, {pool, false}
+        ]
+    ),
+    Status.
 
 %% /admin/stats needs the admin scope and is mounted only when enabled:
 %% read/write tokens are 403, no token 401, and a server without the

@@ -47,7 +47,8 @@ admin_routes(#{admin := #{enabled := true}}, Deadline) ->
         {<<"GET">>, <<"/admin/gc">>, fun xet_h_admin:gc_status/1, route_meta(<<"GET">>, Deadline)},
         {<<"POST">>, <<"/admin/scrub">>, fun xet_h_admin:scrub_trigger/1, undefined},
         {<<"GET">>, <<"/admin/scrub">>, fun xet_h_admin:scrub_status/1,
-            route_meta(<<"GET">>, Deadline)}
+            route_meta(<<"GET">>, Deadline)},
+        {<<"POST">>, <<"/admin/backup">>, fun xet_h_admin:backup/1, undefined}
     ];
 admin_routes(_Config, _Deadline) ->
     [].

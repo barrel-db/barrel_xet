@@ -7,7 +7,15 @@
 %% later tasks extend the response with GC and scrub status.
 -module(xet_h_admin).
 
--export([stats/1, delete_file/1, gc_trigger/1, gc_status/1, scrub_trigger/1, scrub_status/1]).
+-export([
+    stats/1,
+    delete_file/1,
+    gc_trigger/1,
+    gc_status/1,
+    scrub_trigger/1,
+    scrub_status/1,
+    backup/1
+]).
 
 stats(Req) ->
     Name = livery_req:config(server, Req),
@@ -44,6 +52,40 @@ scrub_trigger(Req) ->
 scrub_status(Req) ->
     Name = livery_req:config(server, Req),
     livery_resp:json(200, json:encode(gc_json(xet_scrub:status(Name)))).
+
+%% POST /admin/backup: checkpoint the metadata store into a timestamped
+%% directory under backup_dir. 400 if backup_dir is unset, 409 while GC
+%% is running (a concurrent delete could strand the blob copy step).
+backup(Req) ->
+    Name = livery_req:config(server, Req),
+    #{metadata := Metadata, config := Config} = xet_server:env(Name),
+    case maps:get(backup_dir, Config, undefined) of
+        undefined ->
+            xet_routes:error_response(400, <<"backup_dir_not_configured">>);
+        BackupDir ->
+            case maps:get(running, xet_gc:status(Name)) of
+                true -> xet_routes:error_response(409, <<"gc_running">>);
+                false -> do_backup(Metadata, BackupDir)
+            end
+    end.
+
+do_backup(Metadata, BackupDir) ->
+    Dir = filename:join(BackupDir, utc_stamp()),
+    Target = unicode:characters_to_list(filename:join(Dir, "metadata")),
+    ok = filelib:ensure_path(Dir),
+    case xet_metadata:checkpoint(Metadata, Target) of
+        ok ->
+            livery_resp:json(200, json:encode(#{path => list_to_binary(Target)}));
+        {error, Reason} ->
+            logger:error("backup checkpoint failed: ~p", [Reason]),
+            xet_routes:error_response(500, <<"backup_failed">>)
+    end.
+
+utc_stamp() ->
+    {{Y, Mo, D}, {H, Mi, S}} = calendar:universal_time(),
+    iolist_to_binary(
+        io_lib:format("~4..0w~2..0w~2..0wT~2..0w~2..0w~2..0wZ", [Y, Mo, D, H, Mi, S])
+    ).
 
 gc_json(#{running := Running, last := Last}) ->
     #{

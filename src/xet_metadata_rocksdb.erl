@@ -31,6 +31,7 @@
     fold_xorbs/3,
     delete_file/2,
     delete_xorb/2,
+    checkpoint/2,
     stats/1
 ]).
 
@@ -187,6 +188,9 @@ get_url_secret(#db{handle = Handle, meta = Meta}) ->
 
 put_url_secret(#db{handle = Handle, meta = Meta}, Secret) ->
     rocksdb:put(Handle, Meta, ?URL_SECRET_KEY, encode(Secret), [{sync, true}]).
+
+checkpoint(#db{handle = Handle}, Path) ->
+    rocksdb:checkpoint(Handle, Path).
 
 stats(#db{handle = Handle, meta = Meta} = Db) ->
     #{

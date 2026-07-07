@@ -19,7 +19,8 @@
     counters_backfill/1,
     folds/1,
     delete_file/1,
-    delete_xorb/1
+    delete_xorb/1,
+    checkpoint/1
 ]).
 
 all() ->
@@ -37,7 +38,8 @@ all() ->
         counters_backfill,
         folds,
         delete_file,
-        delete_xorb
+        delete_xorb,
+        checkpoint
     ].
 
 init_per_testcase(Case, Config) ->
@@ -252,6 +254,28 @@ delete_xorb(Config) ->
     ?assertEqual({ok, {<<2:256>>, 9}}, xet_metadata:find_chunk(Db, Shared)),
     ok = xet_metadata:delete_xorb(Db, <<1:256>>),
     ?assertEqual(1, maps:get(xorbs, xet_metadata:stats(Db))).
+
+%% A checkpoint taken under write load opens as a fresh, consistent DB
+%% with the records and schema intact.
+checkpoint(Config) ->
+    Db = db(Config),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(1)),
+    ok = xet_metadata:register_files(Db, [file_meta(1)], [{<<10:256>>, <<1:256>>, 0}]),
+    Target = filename:join(proplists:get_value(dir, Config), "backup/metadata"),
+    ok = filelib:ensure_path(filename:dirname(Target)),
+    ok = xet_metadata:checkpoint(Db, Target),
+    %% Keep writing after the snapshot: it must not affect the copy.
+    ok = xet_metadata:register_xorb(Db, xorb_meta(2)),
+    {ok, Copy} = xet_metadata:open(xet_metadata_rocksdb, #{dir => Target}),
+    try
+        ?assertEqual({ok, xorb_meta(1)}, xet_metadata:get_xorb(Copy, <<1:256>>)),
+        ?assertEqual({ok, file_meta(1)}, xet_metadata:get_file(Copy, <<1:256>>)),
+        %% The write after the checkpoint is not in the snapshot.
+        ?assertEqual(not_found, xet_metadata:get_xorb(Copy, <<2:256>>)),
+        ?assertEqual(1, maps:get(xorbs, xet_metadata:stats(Copy)))
+    after
+        ok = xet_metadata:close(Copy)
+    end.
 
 %% A database written before the counters existed seeds them from its
 %% data on the next open. Simulated with a raw handle that writes xorb

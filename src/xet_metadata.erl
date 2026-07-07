@@ -24,6 +24,7 @@
     fold_xorbs/3,
     delete_file/2,
     delete_xorb/2,
+    checkpoint/2,
     stats/1
 ]).
 
@@ -80,6 +81,7 @@
 -callback fold_xorbs(term(), fun((xorb_meta(), Acc) -> Acc), Acc) -> Acc.
 -callback delete_file(term(), xet_hash:hash()) -> ok | {error, term()}.
 -callback delete_xorb(term(), xet_hash:hash()) -> ok | {error, term()}.
+-callback checkpoint(term(), file:filename_all()) -> ok | {error, term()}.
 -callback stats(term()) -> map().
 
 -spec open(module(), map()) -> {ok, handle()} | {error, term()}.
@@ -143,6 +145,11 @@ delete_file({Mod, State}, Hash) -> Mod:delete_file(State, Hash).
 
 -spec delete_xorb(handle(), xet_hash:hash()) -> ok | {error, term()}.
 delete_xorb({Mod, State}, Hash) -> Mod:delete_xorb(State, Hash).
+
+%% Write a consistent snapshot of the store into a new directory (which
+%% must not already exist). Used by the backup endpoint.
+-spec checkpoint(handle(), file:filename_all()) -> ok | {error, term()}.
+checkpoint({Mod, State}, Path) -> Mod:checkpoint(State, Path).
 
 -spec stats(handle()) -> map().
 stats({Mod, State}) -> Mod:stats(State).

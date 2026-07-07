@@ -16,6 +16,7 @@
     access_log,
     admin,
     auth,
+    backup_dir,
     blob,
     concurrency,
     data_dir,
@@ -196,6 +197,7 @@ validate(Config) ->
         fun check_admin/1,
         fun check_gc/1,
         fun check_scrub/1,
+        fun check_backup_dir/1,
         fun check_misc/1
     ]).
 
@@ -353,6 +355,11 @@ check_scrub(#{scrub := _}) ->
     [<<"scrub must be a map, e.g. #{rate_bytes_per_sec => 33554432, interval => false}">>];
 check_scrub(_Config) ->
     [].
+
+check_backup_dir(#{backup_dir := Dir}) when is_list(Dir), Dir =/= [] -> [];
+check_backup_dir(#{backup_dir := Dir}) when is_binary(Dir), Dir =/= <<>> -> [];
+check_backup_dir(#{backup_dir := _}) -> [<<"backup_dir must be a non-empty path">>];
+check_backup_dir(_Config) -> [].
 
 check_interval(_Label, false) ->
     [];
