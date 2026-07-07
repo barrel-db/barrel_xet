@@ -5,7 +5,7 @@
 %% path-style /bucket/key URLs. Signatures are accepted unverified.
 -module(xet_fake_s3).
 
--export([start/0, stop/1]).
+-export([start/0, stop/1, fail_next/3]).
 
 %% The h1 listener links to its starter, so a long-lived holder process
 %% owns it (and the ets table) across CT callback processes.
@@ -14,11 +14,17 @@ start() ->
     Ref = make_ref(),
     Pid = spawn(fun() -> holder(Caller, Ref) end),
     receive
-        {Ref, Port} -> {ok, #{port => Port, pid => Pid}}
+        {Ref, Port, Table} -> {ok, #{port => Port, pid => Pid, table => Table}}
     after 5000 ->
         exit(Pid, kill),
         {error, fake_s3_start_timeout}
     end.
+
+%% Make the next N PUT requests answer with Status (for exercising the
+%% client's retry layer). N =:= 0 clears any pending failures.
+fail_next(#{table := Table}, N, Status) ->
+    true = ets:insert(Table, {fail_next, N, Status}),
+    ok.
 
 holder(Caller, Ref) ->
     Table = ets:new(xet_fake_s3, [public, set]),
@@ -27,7 +33,7 @@ holder(Caller, Ref) ->
         stack => [],
         handler => fun(Req) -> handle_req(Table, Req) end
     }),
-    Caller ! {Ref, h1:server_port(Listener)},
+    Caller ! {Ref, h1:server_port(Listener), Table},
     receive
         stop -> livery:stop_listener({livery_h1, Listener})
     end.
@@ -49,9 +55,15 @@ handle_req(Table, Req) ->
     dispatch(Method, Key, Table, Req).
 
 dispatch(<<"PUT">>, Key, Table, Req) ->
+    %% Drain the body either way so the connection stays clean.
     Body = read_body(Req),
-    ets:insert(Table, {Key, Body}),
-    livery_resp:new(200, [{<<"etag">>, <<"\"fake\"">>}], {full, <<>>});
+    case take_failure(Table) of
+        {fail, Status} ->
+            livery_resp:new(Status, [], {full, <<>>});
+        ok ->
+            ets:insert(Table, {Key, Body}),
+            livery_resp:new(200, [{<<"etag">>, <<"\"fake\"">>}], {full, <<>>})
+    end;
 dispatch(<<"HEAD">>, Key, Table, _Req) ->
     case ets:lookup(Table, Key) of
         [{_, Body}] ->
@@ -73,6 +85,15 @@ dispatch(<<"DELETE">>, Key, Table, _Req) ->
     livery_resp:new(204, [], {full, <<>>});
 dispatch(_, _, _, _) ->
     livery_resp:new(405, [], {full, <<>>}).
+
+take_failure(Table) ->
+    case ets:lookup(Table, fail_next) of
+        [{fail_next, N, Status}] when N > 0 ->
+            ets:insert(Table, {fail_next, N - 1, Status}),
+            {fail, Status};
+        _ ->
+            ok
+    end.
 
 serve(Body, undefined) ->
     livery_resp:new(200, [], {full, Body});

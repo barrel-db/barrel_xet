@@ -12,7 +12,9 @@
     missing_blob/1,
     idempotent_and_delete/1,
     presign/1,
-    store_metrics_labeled/1
+    store_metrics_labeled/1,
+    put_survives_transient/1,
+    put_exhausts_retries/1
 ]).
 
 -define(NS, <<"default">>).
@@ -21,10 +23,12 @@ all() ->
     [{group, fake}, {group, garage}].
 
 groups() ->
-    Cases = [
+    Common = [
         roundtrip, stream_put, missing_blob, idempotent_and_delete, presign, store_metrics_labeled
     ],
-    [{fake, [], Cases}, {garage, [], Cases}].
+    %% Failure injection is a fake-server feature; Garage runs the rest.
+    FakeOnly = [put_survives_transient, put_exhausts_retries],
+    [{fake, [], Common ++ FakeOnly}, {garage, [], Common}].
 
 init_per_group(fake, Config) ->
     {ok, _} = application:ensure_all_started(livery),
@@ -122,6 +126,28 @@ presign(Config) ->
     ?assert(is_binary(Url)),
     {ok, 200, _Headers, Body} = hackney:request(get, Url, [], <<>>, [with_body]),
     ?assertEqual(Data, Body).
+
+%% The livery_s3 client retries transient 5xx on an idempotent PUT with
+%% a full-binary body (xorb uploads always are): two 503s then success.
+put_survives_transient(Config) ->
+    Store = store(Config),
+    ok = xet_fake_s3:fail_next(proplists:get_value(fake, Config), 2, 503),
+    ok = xet_blob_store:put(Store, ?NS, <<30:256>>, <<"survives">>),
+    ?assertEqual({ok, <<"survives">>}, xet_blob_store:get_range(Store, ?NS, <<30:256>>, 0, 8)).
+
+%% When the transient failures outlast the retry budget, the put errors
+%% and the blob is not stored. (xet_store_s3 logs a warning; see T9.5.)
+put_exhausts_retries(Config) ->
+    Store = store(Config),
+    Fake = proplists:get_value(fake, Config),
+    ok = xet_fake_s3:fail_next(Fake, 10, 503),
+    try
+        ?assertMatch({error, _}, xet_blob_store:put(Store, ?NS, <<31:256>>, <<"nope">>)),
+        ?assertNot(xet_blob_store:exists(Store, ?NS, <<31:256>>))
+    after
+        %% Clear the leftover failure budget for any later case.
+        ok = xet_fake_s3:fail_next(Fake, 0, 503)
+    end.
 
 %% Store ops through the behaviour wrapper record duration and byte
 %% metrics labeled with the s3 backend.

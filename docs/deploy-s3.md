@@ -38,6 +38,23 @@ Set `blob => {s3, ...}` in the `server` map (`config/sys.config.src`):
 For Garage or MinIO, point `endpoint` at the local server (e.g.
 `<<"http://127.0.0.1:3900">>`) and keep `region` matching its config.
 
+### Retries
+
+Object puts retry transient S3 failures (HTTP 429 and 5xx, connect and
+timeout errors) automatically, since a xorb upload sends the whole
+object as one replayable body. Tune the defaults through the `s3` map:
+
+```erlang
+s3 => #{
+    %% ...credentials...
+    retry => #{max => 3, backoff => {200, 2.0}}
+}
+```
+
+`max` is the retry count and `backoff` is `{BaseMs, Factor}` for
+exponential backoff. Streamed puts are not retried, but the server
+always uploads xorbs as full binaries.
+
 ## Verify against Garage
 
 A single-node Garage in Docker is the integration target:
