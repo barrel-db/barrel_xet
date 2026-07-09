@@ -38,6 +38,13 @@ Set `blob => {s3, ...}` in the `server` map (`config/sys.config.src`):
 For Garage or MinIO, point `endpoint` at the local server (e.g.
 `<<"http://127.0.0.1:3900">>`) and keep `region` matching its config.
 
+The `BARREL_XET_*` environment variables, the Docker image, and the
+systemd and FreeBSD service files from
+[Deploy the CAS server](deploy-server.md) apply unchanged: only the
+`blob` map differs. The S3 credentials are not environment variables, so
+keep them in the config file (or your own secret store) with `0600`
+permissions. S3 deployments do not use `BARREL_XET_URL_SECRET`.
+
 ### Retries
 
 Object puts retry transient S3 failures (HTTP 429 and 5xx, connect and

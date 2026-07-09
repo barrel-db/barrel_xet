@@ -58,6 +58,7 @@ file. See [Deploy the server](docs/deploy-server.md) for configuration.
 - [Command-line usage](docs/cli.md)
 - [Deploy the server (filesystem)](docs/deploy-server.md)
 - [Deploy the server (S3 / Garage)](docs/deploy-s3.md)
+- [Production hardening](docs/production.md)
 - [Task checklist](docs/features.md)
 
 ## Spec

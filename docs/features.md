@@ -104,7 +104,7 @@ standalone CAS server.
 - [x] T11.2 Dockerfile + compose
 - [x] T11.3 Release workflow: tarball + GHCR image on tag
 - [x] T11.4 Service integration: systemd + FreeBSD rc.d
-- [ ] T11.5 docs/production.md + deploy guide updates
+- [x] T11.5 docs/production.md + deploy guide updates
 
 ## Phase 12: Validation + release (0.2.0)
 

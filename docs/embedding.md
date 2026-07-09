@@ -79,6 +79,23 @@ the listeners). Stop it by name:
 ok = xet_server:stop(my_cas).
 ```
 
+`stop/1` drains in-flight requests before the listener terminates (up to
+`drain_timeout`, default 30000 ms). In an embedded node running several
+instances the drain counter is node-wide, so `stop/1` on one instance can
+wait on another instance's in-flight requests, bounded by `drain_timeout`.
+Run one service per node in production to avoid this.
+
+`start/1` validates its config and returns `{error, {invalid_config,
+Reasons}}` (a list of binaries) instead of crashing when a required key is
+missing or malformed. Match on it:
+
+```erlang
+case xet_server:start(Config) of
+    {ok, _Pid} -> ok;
+    {error, {invalid_config, Reasons}} -> log_and_bail(Reasons)
+end.
+```
+
 To autostart a server when the barrel_xet application boots — handy in a
 release — set the `server` application env instead of calling `start/1`;
 `barrel_xet_app` starts it for you:
