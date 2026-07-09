@@ -102,7 +102,7 @@ standalone CAS server.
 
 - [x] T11.1 Graceful drain on shutdown
 - [x] T11.2 Dockerfile + compose
-- [ ] T11.3 Release workflow: tarball + GHCR image on tag
+- [x] T11.3 Release workflow: tarball + GHCR image on tag
 - [ ] T11.4 Service integration: systemd + FreeBSD rc.d
 - [ ] T11.5 docs/production.md + deploy guide updates
 
