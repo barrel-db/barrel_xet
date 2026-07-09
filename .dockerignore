@@ -1,0 +1,8 @@
+_build
+doc/spec
+test/fixtures/large
+*.crash.dump
+erl_crash.dump
+priv/*.so
+**/*.o
+**/*.a

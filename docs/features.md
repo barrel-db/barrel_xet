@@ -101,7 +101,7 @@ standalone CAS server.
 ## Phase 11: Lifecycle + packaging (0.2.0)
 
 - [x] T11.1 Graceful drain on shutdown
-- [ ] T11.2 Dockerfile + compose
+- [x] T11.2 Dockerfile + compose
 - [ ] T11.3 Release workflow: tarball + GHCR image on tag
 - [ ] T11.4 Service integration: systemd + FreeBSD rc.d
 - [ ] T11.5 docs/production.md + deploy guide updates

@@ -1,0 +1,19 @@
+# Run barrel_xet with a persistent data volume and a mounted tokens file.
+# Build locally by uncommenting `build`, or use the published image.
+services:
+  barrel_xet:
+    image: ghcr.io/barrel-platform/barrel_xet:latest
+    # build: ..
+    ports:
+      - "8080:8080"
+    volumes:
+      - barrel_xet_data:/var/lib/barrel_xet
+      - ./tokens:/etc/barrel_xet/tokens:ro
+    environment:
+      BARREL_XET_HTTP_PORT: "8080"
+      BARREL_XET_TOKENS_FILE: /etc/barrel_xet/tokens
+      # BARREL_XET_URL_SECRET: <shared secret across replicas>
+    restart: unless-stopped
+
+volumes:
+  barrel_xet_data:

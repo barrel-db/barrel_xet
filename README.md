@@ -37,6 +37,17 @@ _build/prod/rel/barrel_xet/bin/barrel_xet daemon
 curl -s http://127.0.0.1:8080/healthz
 ```
 
+Or with Docker:
+
+```sh
+docker build -t barrel_xet .
+docker run -d -p 8080:8080 -v barrel_xet_data:/var/lib/barrel_xet barrel_xet
+curl -s http://127.0.0.1:8080/healthz
+```
+
+`docker/compose.yaml` runs it with a persistent volume and a mounted tokens
+file. See [Deploy the server](docs/deploy-server.md) for configuration.
+
 ## Guides
 
 - [Getting started](docs/getting-started.md) — concepts, a running server,
