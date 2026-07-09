@@ -15,7 +15,8 @@
 
 -record(state, {
     name :: atom(),
-    service :: pid()
+    service :: pid(),
+    drain_timeout :: pos_integer()
 }).
 -type state() :: #state{}.
 
@@ -30,7 +31,11 @@ init(#{name := Name} = Config) ->
         {ok, Service} ->
             Ports = livery_service:which_listeners(Service),
             persistent_term:put({xet_server_ports, Name}, Ports),
-            {ok, #state{name = Name, service = Service}};
+            {ok, #state{
+                name = Name,
+                service = Service,
+                drain_timeout = maps:get(drain_timeout, Config)
+            }};
         {error, Reason} ->
             {stop, Reason}
     end.
@@ -70,7 +75,14 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{name = Name, service = Service}) ->
+%% Graceful shutdown: stop accepting new connections, let in-flight
+%% requests finish (up to drain_timeout), then stop. Covers bin stop,
+%% systemd/docker stop, and xet_server:stop/1 alike, since all reach the
+%% supervisor's terminate. Note livery's in-flight counter is node-wide,
+%% so in an embedded multi-instance node this waits on other instances'
+%% requests too (bounded by drain_timeout); the release runs one service
+%% per node.
+terminate(_Reason, #state{name = Name, service = Service, drain_timeout = Timeout}) ->
     _ = persistent_term:erase({xet_server_ports, Name}),
-    _ = livery:stop_service(Service),
+    _ = livery:drain(Service, #{timeout => Timeout}),
     ok.

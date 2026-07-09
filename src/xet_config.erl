@@ -21,6 +21,7 @@
     concurrency,
     data_dir,
     data_ratelimit,
+    drain_timeout,
     external_url,
     gc,
     host,
@@ -277,7 +278,9 @@ check_port(Proto, Listener) ->
     end.
 
 check_sizes(Config) ->
-    Positive = [max_body, max_xorb_bytes, max_shard_bytes, url_ttl, key_rotation_interval],
+    Positive = [
+        max_body, max_xorb_bytes, max_shard_bytes, url_ttl, key_rotation_interval, drain_timeout
+    ],
     NonNeg = [spool_memory_max, min_free_bytes],
     lists:flatmap(fun(Key) -> check_pos(Key, maps:get(Key, Config, undefined)) end, Positive) ++
         lists:flatmap(fun(Key) -> check_non_neg(Key, maps:get(Key, Config, undefined)) end, NonNeg).
@@ -423,6 +426,9 @@ defaults(Config) ->
         %% data dir drops below this many bytes (default 1 GiB).
         min_free_bytes => 1073741824,
         url_ttl => 900,
+        %% Graceful shutdown: wait up to this long (ms) for in-flight
+        %% requests to finish before stopping the listener.
+        drain_timeout => 30000,
         %% url_secret has no default here: when absent,
         %% xet_server_stores reuses the secret persisted in metadata (or
         %% generates and persists one), so signed URLs survive restarts.

@@ -236,6 +236,14 @@ bad_metadata_opts_test() ->
     ),
     {ok, _} = xet_config:load(valid(#{metadata_opts => #{block_cache_size => 1048576}})).
 
+drain_timeout_test() ->
+    {ok, Config} = xet_config:load(valid(#{})),
+    ?assertEqual(30000, maps:get(drain_timeout, Config)),
+    ?assertEqual(
+        [<<"drain_timeout must be a positive integer, got 0">>],
+        errors(valid(#{drain_timeout => 0}))
+    ).
+
 bad_blob_test() ->
     ?assertEqual(
         [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>],

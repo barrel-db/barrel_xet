@@ -29,7 +29,8 @@
     admin_stats/1,
     spool_startup_sweep/1,
     reconstruction_missing_xorb/1,
-    admin_backup/1
+    admin_backup/1,
+    graceful_drain/1
 ]).
 
 all() ->
@@ -55,7 +56,8 @@ all() ->
         admin_stats,
         spool_startup_sweep,
         reconstruction_missing_xorb,
-        admin_backup
+        admin_backup,
+        graceful_drain
     ].
 
 init_per_suite(Config) ->
@@ -369,6 +371,56 @@ spool_startup_sweep(Config) ->
     after
         ok = xet_server:stop(xet_spoolsweep_server)
     end.
+
+%% Stopping the server mid-upload drains: a request in flight when
+%% xet_server:stop/1 is called still completes with 200, and the port is
+%% refused once stop returns.
+graceful_drain(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "drain"),
+    {ok, _} = xet_server:start(#{
+        name => xet_drain_server,
+        data_dir => Dir,
+        drain_timeout => 15000,
+        auth => {xet_auth_static, #{tokens => #{<<"w">> => write}}}
+    }),
+    Port = xet_server:port(xet_drain_server),
+    {ok, Enc} = xet_xorb:encode(
+        [xet_test_vectors:splitmix64_data(5000, 1)], #{nonce => <<0, 0, 0, 0>>}
+    ),
+    Bin = maps:get(bin, Enc),
+    Url =
+        "http://127.0.0.1:" ++ integer_to_list(Port) ++
+            "/api/v1/xorbs/default/" ++ binary_to_list(xet_hash:to_string(maps:get(hash, Enc))),
+    Parent = self(),
+    _ = spawn(fun() ->
+        {ok, Ref} = hackney:request(
+            post, Url, [{<<"authorization">>, <<"Bearer w">>}], stream, [{pool, false}]
+        ),
+        trickle(Ref, Bin, 4),
+        ok = hackney:finish_send_body(Ref),
+        {ok, Status, _, Ref2} = hackney:start_response(Ref),
+        {ok, _} = hackney:body(Ref2),
+        Parent ! {upload, Status}
+    end),
+    %% Let the upload begin, then stop mid-body.
+    timer:sleep(300),
+    ok = xet_server:stop(xet_drain_server),
+    receive
+        {upload, S} -> ?assertEqual(200, S)
+    after 15000 -> error(no_upload)
+    end,
+    %% Listener is down: the port refuses new connections.
+    DownUrl = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/healthz",
+    ?assertMatch({error, _}, hackney:request(get, DownUrl, [], <<>>, [{pool, false}])).
+
+trickle(Ref, Bin, N) when N =< 1 ->
+    ok = hackney:send_body(Ref, Bin);
+trickle(Ref, Bin, N) ->
+    ChunkSize = max(1, byte_size(Bin) div N),
+    <<Chunk:ChunkSize/binary, Rest/binary>> = Bin,
+    ok = hackney:send_body(Ref, Chunk),
+    timer:sleep(150),
+    trickle(Ref, Rest, N - 1).
 
 %% POST /admin/backup checkpoints the metadata store; 400 without a
 %% backup_dir, 200 with one (and the checkpoint opens as a fresh DB).

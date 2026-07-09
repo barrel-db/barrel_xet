@@ -66,7 +66,13 @@ start_link(Config) ->
 
 init(Config) ->
     SupFlags = #{strategy => rest_for_one, intensity => 5, period => 30},
-    Children = [
+    {ok, {SupFlags, children(Config)}}.
+
+children(Config) ->
+    %% The listener drains in-flight requests on terminate, so give it a
+    %% shutdown budget past the drain window.
+    ListenerShutdown = maps:get(drain_timeout, Config) + 5000,
+    [
         #{
             id => stores,
             start => {xet_server_stores, start_link, [Config]},
@@ -80,7 +86,7 @@ init(Config) ->
         #{
             id => listener,
             start => {xet_server_listener, start_link, [Config]},
-            shutdown => 10000
+            shutdown => ListenerShutdown
         },
         %% After the listener: a GC or scrub crash must not bounce request
         %% serving.
@@ -94,8 +100,7 @@ init(Config) ->
             start => {xet_scrub, start_link, [Config]},
             shutdown => 5000
         }
-    ],
-    {ok, {SupFlags, Children}}.
+    ].
 
 %% Observability needs the instrument registry running; start it on
 %% demand so metrics/trace middleware have somewhere to record.
