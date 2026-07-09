@@ -1,0 +1,81 @@
+#!/bin/sh
+#
+# barrel_xet CAS server rc.d script for FreeBSD.
+#
+# Install to /usr/local/etc/rc.d/barrel_xet (chmod 755) and enable in
+# /etc/rc.conf:
+#
+#   sysrc barrel_xet_enable=YES
+#
+# Overridable rc.conf knobs (defaults shown):
+#
+#   barrel_xet_user="barrel-xet"
+#   barrel_xet_home="/var/lib/barrel_xet"     # holds ~/.erlang.cookie
+#   barrel_xet_root="/opt/barrel_xet"         # unpacked release
+#   barrel_xet_env="/usr/local/etc/barrel_xet/env"   # sh-sourced, optional
+#
+# The release build is per-platform (include_erts), so build the tarball on
+# FreeBSD from source (rebar3 as prod tar) until a freebsd artifact exists.
+# See docs/deploy-server.md.
+
+# PROVIDE: barrel_xet
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="barrel_xet"
+rcvar="barrel_xet_enable"
+
+load_rc_config $name
+
+: ${barrel_xet_enable:="NO"}
+: ${barrel_xet_user:="barrel-xet"}
+: ${barrel_xet_home:="/var/lib/barrel_xet"}
+: ${barrel_xet_root:="/opt/barrel_xet"}
+: ${barrel_xet_env:="/usr/local/etc/barrel_xet/env"}
+
+bin="${barrel_xet_root}/bin/barrel_xet"
+
+# The release `daemon` mode detaches and supervises itself; `stop` drains
+# in-flight requests (drain_timeout, default 30s) then halts the node.
+start_cmd="barrel_xet_start"
+stop_cmd="barrel_xet_stop"
+status_cmd="barrel_xet_status"
+reload_cmd="barrel_xet_reload"
+extra_commands="reload status"
+
+barrel_xet_env_setup()
+{
+    export HOME="${barrel_xet_home}"
+    export ERL_DIST_PORT="${ERL_DIST_PORT:-9100}"
+    [ -f "${barrel_xet_env}" ] && . "${barrel_xet_env}"
+}
+
+barrel_xet_start()
+{
+    barrel_xet_env_setup
+    echo "Starting barrel_xet."
+    su -m "${barrel_xet_user}" -c "${bin} daemon"
+}
+
+barrel_xet_stop()
+{
+    barrel_xet_env_setup
+    echo "Stopping barrel_xet (draining)."
+    su -m "${barrel_xet_user}" -c "${bin} stop"
+}
+
+barrel_xet_status()
+{
+    barrel_xet_env_setup
+    su -m "${barrel_xet_user}" -c "${bin} ping"
+}
+
+barrel_xet_reload()
+{
+    barrel_xet_env_setup
+    su -m "${barrel_xet_user}" -c "${bin} eval 'xet_auth_file:reload().'"
+}
+
+run_rc_command "$1"

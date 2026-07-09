@@ -1,0 +1,42 @@
+[Unit]
+Description=barrel_xet CAS server
+Documentation=https://github.com/barrel-platform/barrel_xet
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=barrel-xet
+Group=barrel-xet
+
+# The release runs in the foreground so systemd owns supervision and the
+# Erlang stdout goes to the journal. HOME holds ~/.erlang.cookie so
+# `barrel_xet eval` (reload, admin) works; it must be on writable storage.
+Environment=HOME=/var/lib/barrel_xet
+Environment=ERL_DIST_PORT=9100
+# Operator config: ports, data dir, tokens file, TLS paths, url_secret.
+# See docs/deploy-server.md. Missing file is not fatal (defaults apply).
+EnvironmentFile=-/etc/barrel_xet/env
+ExecStart=/opt/barrel_xet/bin/barrel_xet foreground
+
+# Reload the tokens file without dropping connections.
+ExecReload=/opt/barrel_xet/bin/barrel_xet eval 'xet_auth_file:reload().'
+# init:stop drains in-flight requests (drain_timeout, default 30s), so give
+# the stop room past that window before systemd sends SIGKILL.
+ExecStop=/opt/barrel_xet/bin/barrel_xet stop
+TimeoutStopSec=45
+
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Hardening. ReadWritePaths must list every directory the node writes:
+# the data dir (blobs, metadata, spool) and any configured backup dir.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/barrel_xet
+
+[Install]
+WantedBy=multi-user.target

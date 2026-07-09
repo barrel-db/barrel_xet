@@ -99,6 +99,55 @@ To hand-manage the whole config instead of using environment variables,
 point `RELX_CONFIG_PATH=/path/to/your.config` at a plain `.config` file
 (no substitution happens there).
 
+## Run as a service
+
+Unpack the release under `/opt/barrel_xet` (owned by the service user) so
+the paths below match. Both service files run `foreground`/`daemon` and let
+the init system own supervision; `stop` drains in-flight requests before
+halting.
+
+### Docker
+
+```sh
+docker build -t barrel_xet .
+docker run -d -p 8080:8080 -v barrel_xet_data:/var/lib/barrel_xet barrel_xet
+```
+
+`docker/compose.yaml` adds a persistent volume and a mounted tokens file.
+Pass the same `BARREL_XET_*` environment variables as above.
+
+### systemd (Linux)
+
+```sh
+useradd -r -d /var/lib/barrel_xet -m barrel-xet
+install -Dm0644 packaging/systemd/barrel-xet.service /etc/systemd/system/barrel-xet.service
+install -Dm0640 packaging/systemd/env.example /etc/barrel_xet/env
+systemctl daemon-reload
+systemctl enable --now barrel-xet
+```
+
+Edit `/etc/barrel_xet/env` for ports, data dir, tokens file, and TLS
+paths. `systemctl reload barrel-xet` reloads the tokens file without
+dropping connections; `TimeoutStopSec=45` covers the 30s drain window.
+
+### FreeBSD (rc.d)
+
+```sh
+pw useradd barrel-xet -d /var/lib/barrel_xet -m -s /usr/sbin/nologin
+install -m 0755 packaging/freebsd/barrel_xet /usr/local/etc/rc.d/barrel_xet
+sysrc barrel_xet_enable=YES
+service barrel_xet start
+```
+
+`service barrel_xet reload` reloads the tokens file; `service barrel_xet
+status` pings the node. Override `barrel_xet_user`, `barrel_xet_root`,
+and `barrel_xet_env` in `/etc/rc.conf` if your layout differs.
+
+The prod release bundles ERTS and is per-platform, so there is no
+prebuilt FreeBSD tarball yet: build it on the host with
+`rebar3 as prod tar` (the NIF build already covers FreeBSD) and unpack
+the result under `/opt/barrel_xet`.
+
 ## Metrics
 
 `GET /metrics` serves Prometheus text format; scrape it with a read
