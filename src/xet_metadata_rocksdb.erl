@@ -53,24 +53,39 @@
 
 -record(db, {
     handle :: rocksdb:db_handle(),
+    %% Held so the shared block cache lives as long as the DB handle.
+    cache :: rocksdb:cache_handle(),
     files :: rocksdb:cf_handle(),
     xorbs :: rocksdb:cf_handle(),
     chunks :: rocksdb:cf_handle(),
     meta :: rocksdb:cf_handle()
 }).
 
-open(#{dir := Dir}) ->
-    DbOpts = [{create_if_missing, true}, {create_missing_column_families, true}],
+%% Default block cache: 64 MiB, shared across the point-lookup CFs.
+-define(DEFAULT_BLOCK_CACHE, 67108864).
+
+open(#{dir := Dir} = Opts) ->
+    Tuning = maps:get(tuning, Opts, #{}),
+    {ok, Cache} = rocksdb:new_cache(lru, maps:get(block_cache_size, Tuning, ?DEFAULT_BLOCK_CACHE)),
+    DataCf = data_cf_opts(Cache),
     Descriptors = [
         {"default", []},
-        {"files", []},
-        {"xorbs", []},
-        {"chunks", []},
+        {"files", DataCf},
+        {"xorbs", DataCf},
+        {"chunks", DataCf},
         {"meta", [{merge_operator, erlang_merge_operator}]}
     ],
+    DbOpts = [{create_if_missing, true}, {create_missing_column_families, true}],
     case rocksdb:open(Dir, DbOpts, Descriptors) of
         {ok, Handle, [_Default, Files, Xorbs, Chunks, Meta]} ->
-            Db = #db{handle = Handle, files = Files, xorbs = Xorbs, chunks = Chunks, meta = Meta},
+            Db = #db{
+                handle = Handle,
+                cache = Cache,
+                files = Files,
+                xorbs = Xorbs,
+                chunks = Chunks,
+                meta = Meta
+            },
             maybe
                 {ok, Db1} ?= check_schema(Db),
                 ok ?= ensure_counters(Db1),
@@ -78,6 +93,26 @@ open(#{dir := Dir}) ->
             end;
         {error, _} = Error ->
             Error
+    end.
+
+%% Tuning for the point-get-by-hash CFs (files/xorbs/chunks): bloom
+%% filters skip SSTs on the many dedup misses; lz4 shrinks the
+%% term_to_binary values at negligible CPU; the shared block cache and
+%% cache_index_and_filter_blocks bound memory as the SST count grows.
+data_cf_opts(Cache) ->
+    [
+        {compression, compression()},
+        {block_based_table_options, [
+            {block_cache, Cache},
+            {bloom_filter_policy, 10},
+            {cache_index_and_filter_blocks, true}
+        ]}
+    ].
+
+compression() ->
+    case lists:member(lz4, rocksdb:supported_compressions()) of
+        true -> lz4;
+        false -> none
     end.
 
 check_schema(#db{handle = Handle, meta = Meta} = Db) ->
@@ -95,8 +130,10 @@ check_schema(#db{handle = Handle, meta = Meta} = Db) ->
             Error
     end.
 
-close(#db{handle = Handle}) ->
-    rocksdb:close(Handle).
+close(#db{handle = Handle, cache = Cache}) ->
+    Result = rocksdb:close(Handle),
+    _ = rocksdb:release_cache(Cache),
+    Result.
 
 %% Synced: an acknowledged xorb upload must never lose its metadata to a
 %% power failure (the WAL alone only covers process crashes). A new xorb

@@ -20,7 +20,8 @@
     folds/1,
     delete_file/1,
     delete_xorb/1,
-    checkpoint/1
+    checkpoint/1,
+    tuned_open/1
 ]).
 
 all() ->
@@ -39,7 +40,8 @@ all() ->
         folds,
         delete_file,
         delete_xorb,
-        checkpoint
+        checkpoint,
+        tuned_open
     ].
 
 init_per_testcase(Case, Config) ->
@@ -254,6 +256,22 @@ delete_xorb(Config) ->
     ?assertEqual({ok, {<<2:256>>, 9}}, xet_metadata:find_chunk(Db, Shared)),
     ok = xet_metadata:delete_xorb(Db, <<1:256>>),
     ?assertEqual(1, maps:get(xorbs, xet_metadata:stats(Db))).
+
+%% Opening with tuning options (custom block cache) is transparent:
+%% records round-trip and a reopen keeps them.
+tuned_open(Config) ->
+    Dir = filename:join(proplists:get_value(dir, Config), "tuned"),
+    Opts = #{dir => Dir, tuning => #{block_cache_size => 1048576}},
+    {ok, Db} = xet_metadata:open(xet_metadata_rocksdb, Opts),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(1)),
+    ?assertEqual({ok, xorb_meta(1)}, xet_metadata:get_xorb(Db, <<1:256>>)),
+    ok = xet_metadata:close(Db),
+    {ok, Db2} = xet_metadata:open(xet_metadata_rocksdb, Opts),
+    try
+        ?assertEqual({ok, xorb_meta(1)}, xet_metadata:get_xorb(Db2, <<1:256>>))
+    after
+        ok = xet_metadata:close(Db2)
+    end.
 
 %% A checkpoint taken under write load opens as a fresh, consistent DB
 %% with the records and schema intact.

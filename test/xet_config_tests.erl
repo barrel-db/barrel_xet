@@ -229,6 +229,13 @@ bad_backup_dir_test() ->
     ),
     {ok, _} = xet_config:load(valid(#{backup_dir => "/var/backups/xet"})).
 
+bad_metadata_opts_test() ->
+    ?assertEqual(
+        [<<"metadata_opts must be a map">>],
+        errors(valid(#{metadata_opts => not_a_map}))
+    ),
+    {ok, _} = xet_config:load(valid(#{metadata_opts => #{block_cache_size => 1048576}})).
+
 bad_blob_test() ->
     ?assertEqual(
         [<<"blob must be {fs, #{dir => Path}} or {s3, Opts}">>],

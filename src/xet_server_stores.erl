@@ -36,7 +36,8 @@ init(#{name := Name} = Config0) ->
     maybe
         ok ?= filelib:ensure_path(MetaDir),
         sweep_spool(filename:join(DataDir, "spool")),
-        {ok, Metadata} ?= open_metadata(MetaDir, ?OPEN_RETRIES),
+        Tuning = maps:get(metadata_opts, Config0, #{}),
+        {ok, Metadata} ?= open_metadata(MetaDir, Tuning, ?OPEN_RETRIES),
         {ok, Blob} ?= open_blob(Config0),
         {ok, Config} ?= resolve_url_secret(Config0, Metadata),
         Env = #{metadata => Metadata, blob => Blob, config => Config},
@@ -64,15 +65,15 @@ sweep_spool(SpoolDir) ->
 
 %% Only lock contention is worth retrying: a predecessor's LOCK file is
 %% released when its NIF resource is destructed, shortly after a crash.
-open_metadata(Dir, Retries) ->
-    case xet_metadata:open(xet_metadata_rocksdb, #{dir => Dir}) of
+open_metadata(Dir, Tuning, Retries) ->
+    case xet_metadata:open(xet_metadata_rocksdb, #{dir => Dir, tuning => Tuning}) of
         {ok, Handle} ->
             {ok, Handle};
         {error, Reason} when Retries > 0 ->
             case lock_error(Reason) of
                 true ->
                     timer:sleep(?OPEN_RETRY_WAIT),
-                    open_metadata(Dir, Retries - 1);
+                    open_metadata(Dir, Tuning, Retries - 1);
                 false ->
                     {error, Reason}
             end;

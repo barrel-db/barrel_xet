@@ -31,6 +31,7 @@
     max_body,
     max_shard_bytes,
     max_xorb_bytes,
+    metadata_opts,
     metrics,
     min_free_bytes,
     name,
@@ -198,6 +199,7 @@ validate(Config) ->
         fun check_gc/1,
         fun check_scrub/1,
         fun check_backup_dir/1,
+        fun check_metadata_opts/1,
         fun check_misc/1
     ]).
 
@@ -360,6 +362,10 @@ check_backup_dir(#{backup_dir := Dir}) when is_list(Dir), Dir =/= [] -> [];
 check_backup_dir(#{backup_dir := Dir}) when is_binary(Dir), Dir =/= <<>> -> [];
 check_backup_dir(#{backup_dir := _}) -> [<<"backup_dir must be a non-empty path">>];
 check_backup_dir(_Config) -> [].
+
+check_metadata_opts(#{metadata_opts := M}) when is_map(M) -> [];
+check_metadata_opts(#{metadata_opts := _}) -> [<<"metadata_opts must be a map">>];
+check_metadata_opts(_Config) -> [].
 
 check_interval(_Label, false) ->
     [];
