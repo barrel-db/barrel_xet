@@ -108,9 +108,31 @@ standalone CAS server.
 
 ## Phase 12: Validation + release (0.2.0)
 
-- [ ] T12.1 Load/soak re-run + acceptance sweep
+- [x] T12.1 Load/soak re-run + acceptance sweep
 - [ ] T12.2 HA design document (0.3.0 blueprint)
 - [ ] T12.3 v0.2.0 tag + release
+
+## 0.2.0 acceptance
+
+Each end-state item maps to a named test or smoke step (T12.1 sweep).
+
+| Acceptance item | Where it is proven |
+|---|---|
+| Bad config prints listed errors, not a stack trace | `xet_server_SUITE:invalid_config`, `xet_config_tests` |
+| A node runs from env vars alone (port, data dir, tokens, TLS) | `scripts/smoke_release.sh` env boot; `release.yml` image smoke |
+| Signed `/data` URLs survive a restart on the same data dir | `xet_api_SUITE:url_secret_survives_restart` |
+| Tokens added/revoked without a restart | `xet_server_SUITE:auth_file_reload`, `xet_auth_file_tests` |
+| Admin endpoints refuse read/write tokens | `xet_server_SUITE:admin_stats`, `xet_api_SUITE:admin_delete_file`, `admin_gc` |
+| HTTPS + H3 boot from PEM paths; misconfig fails at boot | `xet_server_SUITE:h2_tls_listener`, `h3_listener`, `tls_misconfig`, `h2_cert_rotation` |
+| Prometheus scrapes metrics; each request logs one structured line | `xet_server_SUITE:metrics_endpoint`, `access_log_session_id`; `xet_api_SUITE:metrics_counters`, `metrics_store_and_chunks`; `xet_load_SUITE:observability_enabled` |
+| `/readyz` degrades to 503; `/healthz` stays a cheap ping | `xet_server_SUITE:readyz`; `xet_api_SUITE:insufficient_storage` |
+| Aged unreferenced xorb collected; concurrent registrations lose nothing; dry-run; delete-file | `xet_gc_SUITE` (all cases); `xet_api_SUITE:admin_gc`, `admin_delete_file` |
+| A flipped byte at rest is detected, never auto-deleted | `xet_scrub_SUITE` (all cases) |
+| A checkpoint under write load restores to a working server | `xet_metadata_SUITE:checkpoint`; `xet_server_SUITE:admin_backup`; `xet_soak_SUITE` |
+| In-flight uploads complete across `bin/barrel_xet stop` | `xet_server_SUITE:graceful_drain` |
+| GC + scrub + backup coexist with live traffic (FS and S3) | `xet_soak_SUITE:maintenance_under_traffic` |
+| A `v*` tag publishes a GHCR image and a release tarball, both smoke-tested | `.github/workflows/release.yml` |
+| `make check` green; wire formats untouched | `.github/workflows/ci.yml`; `xet_crossimpl_SUITE`, `xet_interop_SUITE`, `xet_test_vectors` |
 
 ## Deferred beyond 0.2
 

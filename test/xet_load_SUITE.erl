@@ -23,9 +23,14 @@ all() ->
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started([barrel_xet, hackney]),
     DataDir = filename:join(proplists:get_value(priv_dir, Config), "loadsrv"),
+    %% Exercise the concurrent path through the full production middleware
+    %% stack: observability, access log, and request timeouts all on.
     {ok, _} = xet_server:start(#{
         name => xet_load_server,
         data_dir => DataDir,
+        observability => true,
+        access_log => true,
+        request_timeout => 30000,
         auth => {xet_auth_static, #{tokens => #{?TOKEN => write}}}
     }),
     Endpoint = list_to_binary(
