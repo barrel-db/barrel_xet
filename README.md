@@ -59,6 +59,7 @@ file. See [Deploy the server](docs/deploy-server.md) for configuration.
 - [Deploy the server (filesystem)](docs/deploy-server.md)
 - [Deploy the server (S3 / Garage)](docs/deploy-s3.md)
 - [Production hardening](docs/production.md)
+- [High availability design (0.3.0)](docs/ha-design.md)
 - [Task checklist](docs/features.md)
 
 ## Spec

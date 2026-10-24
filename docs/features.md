@@ -109,7 +109,7 @@ standalone CAS server.
 ## Phase 12: Validation + release (0.2.0)
 
 - [x] T12.1 Load/soak re-run + acceptance sweep
-- [ ] T12.2 HA design document (0.3.0 blueprint)
+- [x] T12.2 HA design document (0.3.0 blueprint)
 - [ ] T12.3 v0.2.0 tag + release
 
 ## 0.2.0 acceptance
