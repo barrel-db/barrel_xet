@@ -110,7 +110,19 @@ standalone CAS server.
 
 - [x] T12.1 Load/soak re-run + acceptance sweep
 - [x] T12.2 HA design document (0.3.0 blueprint)
-- [ ] T12.3 v0.2.0 tag + release
+- [ ] T12.3 v0.2.0 tag + release (after Phase 12b)
+
+## Phase 12b: Spec conformance (0.2.0)
+
+Gaps found by a conformance audit against draft-denis-xet-05.
+
+- [ ] T12.4 Verify file hash on shard registration
+- [ ] T12.5 Bound xorb decode (chunk count, unpacked size)
+- [ ] T12.6 Shard lookup-table indices in entry units
+- [ ] T12.7 TLS-only tokens and scheme-correct signed URLs
+- [ ] T12.8 Client fetch retry and V2 multi-entry parsing
+- [ ] T12.9 S3 presigned cache headers + data-route auth match
+- [ ] T12.10 Negative decode tests for xorb and shard rejects
 
 ## 0.2.0 acceptance
 
