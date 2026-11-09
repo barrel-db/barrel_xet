@@ -57,17 +57,27 @@ encode(Files, Cas, FileOffset, CasOffset, LookupStart, Opts) ->
 
 %% Lookup tables, each sorted by truncated hash (u64 LE of the first 8
 %% hash bytes). Exposed so decode can verify a stored shard's tables.
+%%
+%% Indices count 48-byte entries from the start of their section, not
+%% blocks, so a reader can seek to offset + 48 * index (xet-core,
+%% metadata_shard/shard_format.rs: a file block spans its header, terms,
+%% verification entries and metadata ext; a CAS block its header and
+%% chunks).
 -spec encode_lookups([xet_shard:file_info()], [xet_shard:cas_info()]) ->
     {binary(), binary(), binary()}.
 encode_lookups(Files, Cas) ->
-    FileEntries = [{trunc_hash(maps:get(file_hash, F)), I} || {I, F} <- enumerate(Files)],
-    CasEntries = [{trunc_hash(maps:get(cas_hash, B)), I} || {I, B} <- enumerate(Cas)],
+    FileEntries = [
+        {trunc_hash(maps:get(file_hash, F)), I}
+     || {I, F} <- entry_indices(Files, fun file_entries/1)
+    ],
+    CasIndexed = entry_indices(Cas, fun(B) -> 1 + length(maps:get(chunks, B)) end),
+    CasEntries = [{trunc_hash(maps:get(cas_hash, B)), I} || {I, B} <- CasIndexed],
     ChunkEntries = lists:append([
         [
             {trunc_hash(maps:get(hash, Chunk)), I, J}
          || {J, Chunk} <- enumerate(maps:get(chunks, B))
         ]
-     || {I, B} <- enumerate(Cas)
+     || {I, B} <- CasIndexed
     ]),
     {
         <<<<T:64/little, I:32/little>> || {T, I} <- lists:sort(FileEntries)>>,
@@ -77,6 +87,21 @@ encode_lookups(Files, Cas) ->
 
 enumerate(List) ->
     lists:zip(lists:seq(0, length(List) - 1), List).
+
+%% Pair each block with the entry index it starts at.
+entry_indices(Blocks, SizeFun) ->
+    {Indexed, _} = lists:mapfoldl(fun(B, I) -> {{I, B}, I + SizeFun(B)} end, 0, Blocks),
+    Indexed.
+
+file_entries(#{terms := Terms} = File) ->
+    N = length(Terms),
+    1 + N + optional_entries(verification, File, N) + optional_entries(sha256, File, 1).
+
+optional_entries(Key, Map, Count) ->
+    case maps:get(Key, Map, undefined) of
+        undefined -> 0;
+        _ -> Count
+    end.
 
 trunc_hash(<<T:64/little, _/binary>>) -> T.
 

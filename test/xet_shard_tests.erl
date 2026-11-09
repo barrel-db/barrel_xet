@@ -61,6 +61,35 @@ stored_roundtrip_test() ->
     ?assertEqual(1564, maps:get(materialized_bytes, Footer)),
     ?assertEqual(1000, maps:get(stored_bytes, Footer)).
 
+%% Lookup indices count 48-byte entries, as xet-core writes them
+%% (metadata_shard/shard_format.rs: file index += block bytes / 48, CAS
+%% index += 1 + num_chunks). File 1 spans header + 2 terms + 2
+%% verification + 1 ext = 6 entries; CAS blocks of 2, 3, 1 chunks start
+%% at 0, 3, 7.
+lookup_indices_test() ->
+    H = fun(N) -> <<N, 0:248>> end,
+    #{files := [F1, F2]} = sample(),
+    Files = [F1#{file_hash := H(1)}, F2#{file_hash := H(2)}],
+    Cas = [
+        #{
+            cas_hash => H(10 + I),
+            bytes_on_disk => 0,
+            chunks => [#{hash => H(100 + 10 * I + J), size => 1} || J <- lists:seq(1, N)]
+        }
+     || {I, N} <- [{0, 2}, {1, 3}, {2, 1}]
+    ],
+    {FileTab, CasTab, ChunkTab} = xet_shard_footer:encode_lookups(Files, Cas),
+    ?assertEqual([0, 6], [I || <<_:64, I:32/little>> <= FileTab]),
+    ?assertEqual([0, 3, 7], [I || <<_:64, I:32/little>> <= CasTab]),
+    ?assertEqual(
+        [{0, 0}, {0, 1}, {3, 0}, {3, 1}, {3, 2}, {7, 0}],
+        [{I, J} || <<_:64, I:32/little, J:32/little>> <= ChunkTab]
+    ),
+    Bin = xet_shard:encode_stored(#{files => Files, cas => Cas}, #{
+        chunk_hash_key => xet_hash:zero_hash(), created_at => 1, key_expiry => 0
+    }),
+    ?assertMatch({ok, _}, xet_shard:decode(Bin)).
+
 empty_sections_test() ->
     Bin = xet_shard:encode_upload(#{files => [], cas => []}),
     {ok, Dec} = xet_shard:decode(Bin),
