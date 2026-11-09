@@ -82,6 +82,38 @@ tamper_test() ->
     Patched = patch(Bin, 4, 3),
     ?assertEqual({error, {unknown_compression, 3}}, xet_xorb:decode(Patched)).
 
+%% Spec 7.1 on decode: limits are enforced on hand-assembled streams,
+%% since encode never produces them.
+decode_limits_test() ->
+    Tiny = <<<<0, 1:24/little, 0, 1:24/little, 7>> || _ <- lists:seq(1, 8193)>>,
+    ?assertEqual({error, too_many_chunks}, xet_xorb:decode_any(Tiny)),
+    Zeros = xet_nif:lz4f_compress(<<0:(131072 * 8)>>),
+    Header = <<0, (byte_size(Zeros)):24/little, 1, 131072:24/little>>,
+    Inflating = binary:copy(<<Header/binary, Zeros/binary>>, 513),
+    ?assertEqual({error, xorb_too_large}, xet_xorb:decode_any(Inflating)),
+    ?assertEqual({error, empty_xorb}, xet_xorb:decode_any(<<>>)),
+    {ok, Enc} = xet_xorb:encode(chunks3(), #{nonce => ?NONCE0}),
+    Bin = maps:get(bin, Enc),
+    NPos = byte_size(Bin) - 4 - 28,
+    <<Before:NPos/binary, _:32, After/binary>> = Bin,
+    ?assertEqual(
+        {error, too_many_chunks}, xet_xorb:decode(<<Before/binary, 8193:32/little, After/binary>>)
+    ),
+    ?assertEqual(
+        {error, empty_xorb}, xet_xorb:decode(<<Before/binary, 0:32/little, After/binary>>)
+    ).
+
+%% A footer whose boundary points past the chunk data is refused, not
+%% sliced into footer bytes.
+extract_range_untrusted_footer_test() ->
+    Chunks = [xet_test_vectors:splitmix64_data(1000 + I, I) || I <- lists:seq(1, 10)],
+    {ok, Enc} = xet_xorb:encode(Chunks, #{nonce => ?NONCE0}),
+    Bin = maps:get(bin, Enc),
+    LastBoundary = byte_size(Bin) - 4 - 28 - 10 * 4 - 4,
+    <<Before:LastBoundary/binary, _:32, After/binary>> = Bin,
+    Bad = <<Before/binary, 16#7FFFFFFF:32/little, After/binary>>,
+    ?assertEqual({error, bad_range}, xet_xorb:extract_range(Bad, 9, 10)).
+
 extract_range_test() ->
     Chunks = [xet_test_vectors:splitmix64_data(1000 + I, I) || I <- lists:seq(1, 10)],
     {ok, Enc} = xet_xorb:encode(Chunks, #{nonce => ?NONCE0}),

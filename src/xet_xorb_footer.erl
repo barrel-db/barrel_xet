@@ -16,6 +16,7 @@
 -define(HASH_IDENT, <<"XBLBHSH">>).
 -define(BOUNDARY_IDENT, <<"XBLBBND">>).
 -define(TRAILER_SIZE, 28).
+-define(MAX_XORB_CHUNKS, 8192).
 
 -type info() :: #{
     hash := xet_hash:hash(),
@@ -75,6 +76,10 @@ decode_footer(<<"XETBLOB", 1, XorbHash:32/binary, _/binary>> = Footer, DataSize)
     <<N:32/little, HashOff:32/little, BoundaryOff:32/little, _Nonce:4/binary, Reserved:12/binary>> =
         Trailer,
     case Reserved of
+        _ when N =:= 0 ->
+            {error, empty_xorb};
+        _ when N > ?MAX_XORB_CHUNKS ->
+            {error, too_many_chunks};
         <<0:96>> ->
             sections(Footer, DataSize, XorbHash, N, FooterLen - HashOff, FooterLen - BoundaryOff);
         _ ->
@@ -85,8 +90,10 @@ decode_footer(<<"XETBLOB", _, _/binary>>, _DataSize) ->
 decode_footer(_, _DataSize) ->
     {error, bad_footer}.
 
+%% The hash section directly follows the 40-byte main header (7.5 exact
+%% field order).
 sections(Footer, DataSize, XorbHash, N, HashStart, BoundaryStart) when
-    HashStart >= 40,
+    HashStart =:= 40,
     BoundaryStart > HashStart,
     BoundaryStart < byte_size(Footer),
     HashStart + 12 + N * 32 =:= BoundaryStart,

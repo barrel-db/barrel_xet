@@ -214,6 +214,8 @@ decode_any(Bin) ->
             decode_bare(Bin)
     end.
 
+decode_bare(<<>>) ->
+    {error, empty_xorb};
 decode_bare(Bin) ->
     case parse_chunk_stream(Bin) of
         {ok, Chunks} ->
@@ -233,14 +235,22 @@ decode_bare(Bin) ->
     end.
 
 %% Parse and decompress a bare chunk stream (headers + payloads, no
-%% footer), as downloaded from a fetch URL byte range.
+%% footer), as downloaded from a fetch URL byte range. The 7.1 limits
+%% are checked from each header before decompressing, so a small body of
+%% highly compressible chunks cannot inflate past one xorb's worth.
 -spec parse_chunk_stream(binary()) -> {ok, [binary()]} | {error, term()}.
 parse_chunk_stream(Bin) ->
-    parse_chunks(Bin, []).
+    parse_chunks(Bin, 0, 0, []).
 
-parse_chunks(<<>>, Acc) ->
+parse_chunks(<<>>, _Count, _Total, Acc) ->
     {ok, lists:reverse(Acc)};
-parse_chunks(<<0, CompSize:24/little, Type, USize:24/little, Rest/binary>>, Acc) when
+parse_chunks(<<0, _:56, _/binary>>, ?MAX_XORB_CHUNKS, _Total, _Acc) ->
+    {error, too_many_chunks};
+parse_chunks(<<0, _:32, USize:24/little, _/binary>>, _Count, Total, _Acc) when
+    Total + USize > ?MAX_XORB_SIZE
+->
+    {error, xorb_too_large};
+parse_chunks(<<0, CompSize:24/little, Type, USize:24/little, Rest/binary>>, Count, Total, Acc) when
     USize >= 1,
     USize =< ?MAX_CHUNK_SIZE,
     CompSize >= 1,
@@ -249,14 +259,14 @@ parse_chunks(<<0, CompSize:24/little, Type, USize:24/little, Rest/binary>>, Acc)
 ->
     <<Payload:CompSize/binary, Next/binary>> = Rest,
     case decompress_chunk(Type, Payload, USize) of
-        {ok, Data} -> parse_chunks(Next, [Data | Acc]);
+        {ok, Data} -> parse_chunks(Next, Count + 1, Total + USize, [Data | Acc]);
         {error, _} = Error -> Error
     end;
-parse_chunks(<<0, _CompSize:24/little, _Type, _USize:24/little, _/binary>>, _Acc) ->
+parse_chunks(<<0, _CompSize:24/little, _Type, _USize:24/little, _/binary>>, _, _, _Acc) ->
     {error, bad_chunk_size};
-parse_chunks(<<Version, _/binary>>, _Acc) when Version =/= 0 ->
+parse_chunks(<<Version, _/binary>>, _, _, _Acc) when Version =/= 0 ->
     {error, bad_chunk_version};
-parse_chunks(_, _Acc) ->
+parse_chunks(_, _, _, _Acc) ->
     {error, truncated}.
 
 decompress_chunk(0, Payload, USize) when byte_size(Payload) =:= USize ->
@@ -281,16 +291,21 @@ exact_size({error, Reason}, _USize) ->
     {error, {decompress, Reason}}.
 
 %% Decompressed chunks [Start, End) of a full serialized xorb, located
-%% through the footer's boundary offsets.
+%% through the footer's boundary offsets. The footer is not trusted: the
+%% span must be non-empty and stay inside the chunk data region.
 -spec extract_range(binary(), non_neg_integer(), pos_integer()) ->
     {ok, [binary()]} | {error, term()}.
 extract_range(Bin, Start, End) ->
     case xet_xorb_footer:decode(Bin) of
-        {ok, #{boundary_offsets := Boundaries}} when
+        {ok, #{boundary_offsets := Boundaries, data_size := DataSize}} when
             Start >= 0, End > Start, End =< length(Boundaries)
         ->
-            {ByteStart, ByteEnd} = chunk_byte_range(Boundaries, {Start, End}),
-            parse_chunk_stream(binary:part(Bin, ByteStart, ByteEnd - ByteStart));
+            case chunk_byte_range(Boundaries, {Start, End}) of
+                {ByteStart, ByteEnd} when ByteStart < ByteEnd, ByteEnd =< DataSize ->
+                    parse_chunk_stream(binary:part(Bin, ByteStart, ByteEnd - ByteStart));
+                _ ->
+                    {error, bad_range}
+            end;
         {ok, _} ->
             {error, bad_range};
         {error, _} = Error ->

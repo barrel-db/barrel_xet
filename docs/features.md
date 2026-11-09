@@ -117,7 +117,7 @@ standalone CAS server.
 Gaps found by a conformance audit against draft-denis-xet-05.
 
 - [x] T12.4 Verify file hash on shard registration
-- [ ] T12.5 Bound xorb decode (chunk count, unpacked size)
+- [x] T12.5 Bound xorb decode (chunk count, unpacked size)
 - [ ] T12.6 Shard lookup-table indices in entry units
 - [ ] T12.7 TLS-only tokens and scheme-correct signed URLs
 - [ ] T12.8 Client fetch retry and V2 multi-entry parsing
