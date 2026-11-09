@@ -2,7 +2,7 @@
 %% Copyright 2026 Benoit Chesneau
 %% Server configuration: validation and defaults. load/1 turns a bad
 %% config into listed, actionable errors instead of a boot-time crash.
-%% Empty TLS cert/key or url_secret values (unset ${VAR} substitutions
+%% Empty TLS cert/key, url_secret or external_url values (unset ${VAR} substitutions
 %% in a templated sys.config) are dropped so the blocks can always be
 %% present; empty auth tokens are fatal instead, so a missing token
 %% variable cannot silently authenticate nobody.
@@ -68,11 +68,11 @@ warn_unknown(Config) ->
     end.
 
 drop_empty(Config) ->
-    lists:foldl(fun drop_empty/2, Config, [https, http3, url_secret]).
+    lists:foldl(fun drop_empty/2, Config, [https, http3, url_secret, external_url]).
 
-drop_empty(url_secret, Config) ->
-    case maps:get(url_secret, Config, undefined) of
-        Empty when Empty =:= <<>>; Empty =:= "" -> maps:remove(url_secret, Config);
+drop_empty(Key, Config) when Key =:= url_secret; Key =:= external_url ->
+    case maps:get(Key, Config, undefined) of
+        Empty when Empty =:= <<>>; Empty =:= "" -> maps:remove(Key, Config);
         _ -> Config
     end;
 drop_empty(Proto, Config) ->

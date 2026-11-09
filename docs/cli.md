@@ -24,6 +24,14 @@ export XET_TOKEN=write-token
 `XET_ENDPOINT` defaults to `http://localhost:8080`; `XET_TOKEN` is
 optional.
 
+The CLI refuses to send a token over plain `http` to anything but a
+loopback address (`localhost`, `127.0.0.1`, `::1`). Use an `https`
+endpoint, or, on a trusted network only, opt out:
+
+```sh
+export XET_ALLOW_INSECURE_HTTP=1
+```
+
 ## Commands
 
 ```sh

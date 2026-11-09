@@ -130,10 +130,22 @@ signed_self_url(Req, Config, Ns, CasHash, Ttl) ->
 external_base(Req, Config) ->
     case maps:get(external_url, Config, undefined) of
         undefined ->
+            %% The listener's own scheme, so TLS listeners never mint
+            %% http URLs; external_url overrides it behind a proxy.
             Host = livery_req:header(<<"host">>, Req, <<"localhost">>),
-            <<"http://", Host/binary>>;
+            <<(request_scheme(Req))/binary, "://", Host/binary>>;
         Url ->
             Url
+    end.
+
+%% h3 is always TLS; h1 records the ssl listener in tls; h2 carries the
+%% client's :scheme pseudo-header (https on a TLS connection).
+request_scheme(Req) ->
+    case {livery_req:protocol(Req), livery_req:tls(Req)} of
+        {h3, _} -> <<"https">>;
+        {h1, undefined} -> <<"http">>;
+        {h1, _} -> <<"https">>;
+        {h2, _} -> livery_req:scheme(Req)
     end.
 
 respond(Rendered) ->

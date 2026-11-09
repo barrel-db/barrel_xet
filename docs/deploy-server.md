@@ -37,6 +37,7 @@ Then set environment variables as needed; every one has a default:
 | `BARREL_XET_HTTPS_PORT` | `8443` (listener off without cert and key) |
 | `BARREL_XET_TLS_CERT` / `BARREL_XET_TLS_KEY` | empty: no TLS listener |
 | `BARREL_XET_URL_SECRET` | empty: generated once, persisted in metadata |
+| `BARREL_XET_EXTERNAL_URL` | empty: signed URLs use the request's scheme and `Host` |
 | `BARREL_XET_LOG_LEVEL` | `notice` |
 | `BARREL_XET_NODE` | `barrel_xet@127.0.0.1` |
 
@@ -63,6 +64,19 @@ bin/barrel_xet eval 'ssl:clear_pem_cache().'
 ```
 
 http3 captures the certificate at boot: restart after replacing it.
+
+Signed data URLs use the scheme of the listener that answered the
+reconstruction query, so the https listener hands out `https://` URLs.
+Behind a proxy that terminates TLS, the server only sees `http`; set
+the public base yourself:
+
+```sh
+export BARREL_XET_EXTERNAL_URL=https://xet.example.com
+```
+
+Clients refuse to send bearer tokens over plain `http` to non-loopback
+hosts (spec 14.2), so a remote deployment needs TLS on one side or the
+other.
 
 Notes:
 

@@ -47,13 +47,18 @@
     retry_after_max => 360000
 }).
 
+%% Bearer tokens travel over TLS only (spec 14.2): an http endpoint with
+%% a token raises {insecure_endpoint, Endpoint} unless it is loopback or
+%% the caller passes allow_insecure_http => true.
 -spec new(map()) -> client().
 new(Opts) ->
     Endpoint = maps:get(endpoint, Opts),
+    Token = maps:get(token, Opts, <<>>),
+    ok = check_transport(Endpoint, Token, maps:get(allow_insecure_http, Opts, false)),
     Http = livery_client:new(#{base_url => Endpoint, stack => stack(Opts)}),
     Base = #{
         http => Http,
-        token => xet_client_token:new(maps:get(token, Opts, <<>>)),
+        token => xet_client_token:new(Token),
         dialect => maps:get(dialect, Opts, draft),
         session_id => maps:get(session_id, Opts, gen_session_id())
     },
@@ -61,6 +66,22 @@ new(Opts) ->
     case Opts of
         #{chunk_cache := Cache} -> Base#{chunk_cache => Cache};
         _ -> Base
+    end.
+
+check_transport(_Endpoint, <<>>, _Allow) ->
+    ok;
+check_transport(_Endpoint, _Token, true) ->
+    ok;
+check_transport(Endpoint, _Token, _Allow) ->
+    case uri_string:parse(unicode:characters_to_binary(Endpoint)) of
+        #{scheme := <<"https">>} ->
+            ok;
+        #{scheme := <<"http">>, host := Host} when
+            Host =:= <<"localhost">>; Host =:= <<"127.0.0.1">>; Host =:= <<"::1">>
+        ->
+            ok;
+        _ ->
+            error({insecure_endpoint, Endpoint})
     end.
 
 %% Client layer stack, outermost first: retry (always), then optional

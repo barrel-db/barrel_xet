@@ -16,6 +16,7 @@
     ratelimit/1,
     restart_survives_caller/1,
     h2_tls_listener/1,
+    https_signed_urls/1,
     invalid_config/1,
     auth_file_reload/1,
     tls_misconfig/1,
@@ -43,6 +44,7 @@ all() ->
         ratelimit,
         restart_survives_caller,
         h2_tls_listener,
+        https_signed_urls,
         invalid_config,
         auth_file_reload,
         tls_misconfig,
@@ -139,6 +141,53 @@ ratelimit(Config) ->
     after
         ok = xet_server:stop(xet_rl_server)
     end.
+
+%% A reconstruction answered on the https listener hands out https data
+%% URLs, the cleartext one http (spec 14.2: no token-bearing http hops).
+https_signed_urls(Config) ->
+    case os:find_executable("openssl") of
+        false -> {skip, "openssl not available for self-signed cert"};
+        _ -> https_signed_urls_run(filename:join(proplists:get_value(priv_dir, Config), "urls"))
+    end.
+
+https_signed_urls_run(Dir) ->
+    {Cert, Key} = gen_cert(Dir, "localhost"),
+    {ok, _} = xet_server:start(#{
+        name => xet_urls_server,
+        data_dir => filename:join(Dir, "data"),
+        https => #{port => 0, cert => Cert, key => Key},
+        auth => {xet_auth_static, #{tokens => #{<<"t">> => write}}}
+    }),
+    try
+        Client = xet_client:new(#{
+            endpoint => list_to_binary(base_url(xet_urls_server)), token => <<"t">>
+        }),
+        {ok, #{file_hash := Hash}} = xet_client_upload:upload_data(
+            Client, f, <<"signed url scheme">>
+        ),
+        Path = "/api/v1/reconstructions/" ++ binary_to_list(xet_hash:to_string(Hash)),
+        TlsBase =
+            "https://127.0.0.1:" ++
+                integer_to_list(maps:get(h2, xet_server:ports(xet_urls_server))),
+        ?assertMatch(
+            <<"https://", _/binary>>,
+            first_fetch_url(TlsBase ++ Path, [{ssl_options, [{insecure, true}]}])
+        ),
+        ?assertMatch(
+            <<"http://", _/binary>>, first_fetch_url(base_url(xet_urls_server) ++ Path, [])
+        )
+    after
+        ok = xet_server:stop(xet_urls_server)
+    end.
+
+first_fetch_url(Url, Opts) ->
+    {ok, 200, _, Body} = hackney:request(
+        get, Url, [{<<"authorization">>, <<"Bearer t">>}], <<>>, [with_body | Opts]
+    ),
+    [[#{<<"url">> := FetchUrl} | _] | _] = maps:values(
+        maps:get(<<"fetch_info">>, json:decode(Body))
+    ),
+    FetchUrl.
 
 %% One instance can serve H1 and H2 (TLS/ALPN) together from a shared
 %% router; H3 rides the same path via livery once certs are configured.

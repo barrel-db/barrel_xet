@@ -33,12 +33,23 @@ run(_) ->
     2.
 
 with_client(Fun) ->
-    Fun(client()).
+    try client() of
+        Client -> Fun(Client)
+    catch
+        error:{insecure_endpoint, Endpoint} ->
+            fail(
+                "refusing to send a token over plain http to ~ts (use https, or set XET_ALLOW_INSECURE_HTTP=1)",
+                [
+                    Endpoint
+                ]
+            )
+    end.
 
 client() ->
     Endpoint = list_to_binary(os:getenv("XET_ENDPOINT", "http://localhost:8080")),
     Token = list_to_binary(os:getenv("XET_TOKEN", "")),
-    xet_client:new(#{endpoint => Endpoint, token => Token}).
+    Insecure = os:getenv("XET_ALLOW_INSECURE_HTTP") =:= "1",
+    xet_client:new(#{endpoint => Endpoint, token => Token, allow_insecure_http => Insecure}).
 
 do_upload(Client, File) ->
     case xet_client_upload:upload_file(Client, list_to_binary(File), File) of

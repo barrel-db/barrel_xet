@@ -50,6 +50,10 @@
             %% Set BARREL_XET_URL_SECRET only to manage it yourself
             %% (for example, shared across nodes).
             url_secret => <<"${BARREL_XET_URL_SECRET:-}">>,
+            %% Base of the signed data URLs handed to clients. Empty:
+            %% built from the request's scheme and Host header. Set it
+            %% behind a TLS-terminating proxy (https://xet.example.com).
+            external_url => <<"${BARREL_XET_EXTERNAL_URL:-}">>,
             %% Tokens file: one "token scope" line per token, scope is
             %% read, write or admin, # starts a comment. Reload without
             %% a restart:
