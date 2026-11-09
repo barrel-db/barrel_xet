@@ -29,7 +29,11 @@ init(#{name := Name} = Config) ->
     Opts = service_opts(Config),
     case livery:start_service(Opts) of
         {ok, Service} ->
-            Ports = livery_service:which_listeners(Service),
+            %% livery lists every bound port per protocol; we bind one
+            %% listener each, so publish the first.
+            Ports = maps:map(
+                fun(_Proto, [Port | _]) -> Port end, livery_service:which_listeners(Service)
+            ),
             persistent_term:put({xet_server_ports, Name}, Ports),
             {ok, #state{
                 name = Name,
