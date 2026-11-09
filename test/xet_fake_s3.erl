@@ -5,7 +5,7 @@
 %% path-style /bucket/key URLs. Signatures are accepted unverified.
 -module(xet_fake_s3).
 
--export([start/0, stop/1, fail_next/3]).
+-export([start/0, stop/1, fail_next/3, fail_next_ranged/3, put_object/3]).
 
 %% The h1 listener links to its starter, so a long-lived holder process
 %% owns it (and the ets table) across CT callback processes.
@@ -24,6 +24,16 @@ start() ->
 %% client's retry layer). N =:= 0 clears any pending failures.
 fail_next(#{table := Table}, N, Status) ->
     true = ets:insert(Table, {fail_next, N, Status}),
+    ok.
+
+%% Same for the next N GETs carrying a Range header (xorb fetches).
+fail_next_ranged(#{table := Table}, N, Status) ->
+    true = ets:insert(Table, {fail_next_ranged, N, Status}),
+    ok.
+
+%% Seed an object without going through HTTP.
+put_object(#{table := Table}, Key, Body) ->
+    true = ets:insert(Table, {Key, Body}),
     ok.
 
 holder(Caller, Ref) ->
@@ -57,7 +67,7 @@ handle_req(Table, Req) ->
 dispatch(<<"PUT">>, Key, Table, Req) ->
     %% Drain the body either way so the connection stays clean.
     Body = read_body(Req),
-    case take_failure(Table) of
+    case take_failure(Table, fail_next) of
         {fail, Status} ->
             livery_resp:new(Status, [], {full, <<>>});
         ok ->
@@ -76,9 +86,11 @@ dispatch(<<"HEAD">>, Key, Table, _Req) ->
             livery_resp:new(404, [], {full, <<>>})
     end;
 dispatch(<<"GET">>, Key, Table, Req) ->
-    case ets:lookup(Table, Key) of
-        [{_, Body}] -> serve(Body, livery_req:header(<<"range">>, Req));
-        [] -> not_such_key()
+    Range = livery_req:header(<<"range">>, Req),
+    case {ets:lookup(Table, Key), ranged_failure(Table, Range)} of
+        {_, {fail, Status}} -> livery_resp:new(Status, [], {full, <<>>});
+        {[{_, Body}], ok} -> serve(Body, Range);
+        {[], ok} -> not_such_key()
     end;
 dispatch(<<"DELETE">>, Key, Table, _Req) ->
     ets:delete(Table, Key),
@@ -86,14 +98,17 @@ dispatch(<<"DELETE">>, Key, Table, _Req) ->
 dispatch(_, _, _, _) ->
     livery_resp:new(405, [], {full, <<>>}).
 
-take_failure(Table) ->
-    case ets:lookup(Table, fail_next) of
-        [{fail_next, N, Status}] when N > 0 ->
-            ets:insert(Table, {fail_next, N - 1, Status}),
+take_failure(Table, Counter) ->
+    case ets:lookup(Table, Counter) of
+        [{Counter, N, Status}] when N > 0 ->
+            ets:insert(Table, {Counter, N - 1, Status}),
             {fail, Status};
         _ ->
             ok
     end.
+
+ranged_failure(_Table, undefined) -> ok;
+ranged_failure(Table, _Range) -> take_failure(Table, fail_next_ranged).
 
 serve(Body, undefined) ->
     livery_resp:new(200, [], {full, Body});

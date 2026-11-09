@@ -54,7 +54,7 @@ assemble(Client, FileHash, Recon, Range) ->
     Concurrency = maps:get(concurrency, Client, ?FETCH_CONCURRENCY),
     Cache = maps:get(chunk_cache, Client, undefined),
     maybe
-        {ok, ChunkMap} ?= fetch_all(Fetches, Concurrency, Cache),
+        {ok, ChunkMap} ?= fetch_all(maps:get(fetch, Client), Fetches, Concurrency, Cache),
         {ok, TermChunks} ?= extract_terms(Terms, ChunkMap),
         ok ?= verify_file_hash(FileHash, Range, Offset, TermChunks),
         {ok, output(Range, TermChunks, Offset)}
@@ -74,15 +74,15 @@ terms(Recon) ->
      || T <- maps:get(<<"terms">>, Recon)
     ].
 
-%% {CasStr, ChunkStart, ChunkEnd, Url, ByteStart, ByteEnd} per fetch.
+%% {CasStr, ChunkStart, ChunkEnd, Url, ByteStart, ByteEnd} per fetch. A
+%% V2 xorb may list several fetch entries (one URL each).
 fetches(#{<<"xorbs">> := Xorbs}) ->
-    lists:append([
-        [
-            fetch_entry(CasStr, maps:get(<<"url">>, Entry), Rng)
-         || Rng <- maps:get(<<"ranges">>, Entry)
-        ]
-     || {CasStr, [Entry]} <- maps:to_list(Xorbs)
-    ]);
+    [
+        fetch_entry(CasStr, maps:get(<<"url">>, Entry), Rng)
+     || {CasStr, Entries} <- maps:to_list(Xorbs),
+        Entry <- Entries,
+        Rng <- maps:get(<<"ranges">>, Entry)
+    ];
 fetches(#{<<"fetch_info">> := FetchInfo}) ->
     lists:append([
         [v1_entry(CasStr, E) || E <- Entries]
@@ -105,42 +105,46 @@ range_of(#{<<"start">> := S, <<"end">> := E}) -> {S, E}.
 %% Fetching
 %%--------------------------------------------------------------------
 
-fetch_all(Fetches, Concurrency, Cache) ->
-    Results = xet_par:map(fun(Entry) -> fetch_one(Entry, Cache) end, Fetches, Concurrency),
+fetch_all(Http, Fetches, Concurrency, Cache) ->
+    Results = xet_par:map(fun(Entry) -> fetch_one(Http, Entry, Cache) end, Fetches, Concurrency),
     combine(Results, #{}).
 
 %% A fully-cached range skips the network entirely; otherwise fetch, then
 %% populate the cache with the extracted chunks.
-fetch_one({CasStr, ChunkStart, ChunkEnd, _Url, _BS, _BE} = Entry, Cache) ->
+fetch_one(Http, {CasStr, ChunkStart, ChunkEnd, _Url, _BS, _BE} = Entry, Cache) ->
     case cache_get(Cache, CasStr, ChunkStart, ChunkEnd) of
         {ok, Chunks} ->
             {ok, {CasStr, ChunkStart, Chunks}};
         miss ->
-            Result = fetch_network(Entry),
+            Result = fetch_network(Http, Entry),
             cache_put(Cache, Result),
             Result
     end.
 
-fetch_network({CasStr, ChunkStart, ChunkEnd, Url, ByteStart, ByteEnd}) ->
+%% The fetch client's retry layer covers transport errors, 408, 429 and
+%% 5xx; a 403 is an expired URL, handled by re-querying reconstruction.
+fetch_network(Http, {CasStr, ChunkStart, ChunkEnd, Url, ByteStart, ByteEnd}) ->
     RangeHeader = iolist_to_binary([
         "bytes=", integer_to_binary(ByteStart), "-", integer_to_binary(ByteEnd)
     ]),
-    case
-        hackney:request(get, Url, [{<<"range">>, RangeHeader}], <<>>, [with_body, {pool, false}])
-    of
-        %% 206 body is exactly the chunk region; 200 means the backend
-        %% ignored Range and returned the whole xorb, so slice it.
-        {ok, 206, _, Body} ->
-            tagged(CasStr, ChunkStart, xet_xorb:parse_chunk_stream(Body));
-        {ok, 200, _, Body} ->
-            tagged(CasStr, ChunkStart, xet_xorb:extract_range(Body, ChunkStart, ChunkEnd));
-        {ok, 403, _, _} ->
-            url_expired;
-        {ok, Status, _, _} ->
-            {error, {http, Status}};
+    case livery_client:request(Http, get, Url, #{headers => [{<<"range">>, RangeHeader}]}) of
+        {ok, Resp} ->
+            {full, Body} = livery_client:body(Resp),
+            fetched(livery_client:status(Resp), Body, CasStr, ChunkStart, ChunkEnd);
         {error, _} = Error ->
             Error
     end.
+
+%% 206 body is exactly the chunk region; 200 means the backend ignored
+%% Range and returned the whole xorb, so slice it.
+fetched(206, Body, CasStr, ChunkStart, _ChunkEnd) ->
+    tagged(CasStr, ChunkStart, xet_xorb:parse_chunk_stream(Body));
+fetched(200, Body, CasStr, ChunkStart, ChunkEnd) ->
+    tagged(CasStr, ChunkStart, xet_xorb:extract_range(Body, ChunkStart, ChunkEnd));
+fetched(403, _Body, _CasStr, _ChunkStart, _ChunkEnd) ->
+    url_expired;
+fetched(Status, _Body, _CasStr, _ChunkStart, _ChunkEnd) ->
+    {error, {http, Status}}.
 
 cache_get(undefined, _CasStr, _Start, _End) ->
     miss;
@@ -183,10 +187,17 @@ extract_terms(Terms, ChunkMap) ->
 extract_terms([], _ChunkMap, Acc) ->
     {ok, lists:reverse(Acc)};
 extract_terms([{CasStr, {Start, End}, Unpacked} | Rest], ChunkMap, Acc) ->
-    Chunks = [maps:get({CasStr, I}, ChunkMap) || I <- lists:seq(Start, End - 1)],
-    case lists:sum([byte_size(C) || C <- Chunks]) of
-        Unpacked -> extract_terms(Rest, ChunkMap, [Chunks | Acc]);
-        _ -> {error, unpacked_length_mismatch}
+    Found = [{I, maps:find({CasStr, I}, ChunkMap)} || I <- lists:seq(Start, End - 1)],
+    case [I || {I, error} <- Found] of
+        [] ->
+            Chunks = [C || {_, {ok, C}} <- Found],
+            case lists:sum([byte_size(C) || C <- Chunks]) of
+                Unpacked -> extract_terms(Rest, ChunkMap, [Chunks | Acc]);
+                _ -> {error, unpacked_length_mismatch}
+            end;
+        [Missing | _] ->
+            %% The reconstruction named a chunk no fetch entry covered.
+            {error, {missing_chunk, CasStr, Missing}}
     end.
 
 %% Full downloads (whole file, no skip) re-derive and check the file hash.

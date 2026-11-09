@@ -30,6 +30,7 @@
 
 -type client() :: #{
     http := term(),
+    fetch := term(),
     token := xet_client_token:provider(),
     dialect := draft | hf,
     session_id := binary()
@@ -56,8 +57,12 @@ new(Opts) ->
     Token = maps:get(token, Opts, <<>>),
     ok = check_transport(Endpoint, Token, maps:get(allow_insecure_http, Opts, false)),
     Http = livery_client:new(#{base_url => Endpoint, stack => stack(Opts)}),
+    %% Xorb fetches go to absolute, self-signed URLs (no base, no auth)
+    %% through the same retry taxonomy (spec 12.7); fetch_retry overrides.
+    Fetch = livery_client:new(#{stack => [retry_layer(maps:get(fetch_retry, Opts, #{}))]}),
     Base = #{
         http => Http,
+        fetch => Fetch,
         token => xet_client_token:new(Token),
         dialect => maps:get(dialect, Opts, draft),
         session_id => maps:get(session_id, Opts, gen_session_id())

@@ -11,7 +11,9 @@
     random_ranges/1,
     download_to_file/1,
     file_hash_mismatch_detected/1,
-    expired_url_requery/1
+    expired_url_requery/1,
+    v2_multi_entry/1,
+    fetch_retry/1
 ]).
 
 -define(TOKEN, <<"dl-token">>).
@@ -23,7 +25,9 @@ all() ->
         random_ranges,
         download_to_file,
         file_hash_mismatch_detected,
-        expired_url_requery
+        expired_url_requery,
+        v2_multi_entry,
+        fetch_retry
     ].
 
 init_per_suite(Config) ->
@@ -145,3 +149,73 @@ expired_url_requery(Config) ->
     {ok, 403, _, _} = hackney:request(get, Url, [], <<>>, [with_body, {pool, false}]),
     %% The pipeline re-queries and recovers.
     ?assertEqual({ok, Data}, xet_client_download:download_data(Client, FileHash)).
+
+%%--------------------------------------------------------------------
+%% Against a fake CAS (canned V2 reconstruction, ranged xorb fetches)
+%%--------------------------------------------------------------------
+
+%% A V2 xorb listing several fetch entries is fully fetched, not dropped
+%% (other servers split one xorb across entries).
+v2_multi_entry(_Config) ->
+    with_fake_cas(fun(Fake, Client, FileHash, Data) ->
+        _ = Fake,
+        ?assertEqual({ok, Data}, xet_client_download:download_data(Client, FileHash))
+    end).
+
+%% Transient 5xx on a xorb fetch is retried (spec 12.7); a persistent one
+%% surfaces once the retry budget is spent.
+fetch_retry(_Config) ->
+    with_fake_cas(fun(Fake, Client, FileHash, Data) ->
+        ok = xet_fake_s3:fail_next_ranged(Fake, 1, 503),
+        ?assertEqual({ok, Data}, xet_client_download:download_data(Client, FileHash)),
+        ok = xet_fake_s3:fail_next_ranged(Fake, 100, 503),
+        ?assertMatch({error, _}, xet_client_download:download_data(Client, FileHash)),
+        ok = xet_fake_s3:fail_next_ranged(Fake, 0, 503)
+    end).
+
+with_fake_cas(Fun) ->
+    {ok, Fake} = xet_fake_s3:start(),
+    try
+        Base = <<"http://127.0.0.1:", (integer_to_binary(maps:get(port, Fake)))/binary>>,
+        {FileHash, Data} = seed_fake_cas(Fake, Base),
+        Client = xet_client:new(#{
+            endpoint => Base, fetch_retry => #{max => 2, backoff => {10, 1.0}}
+        }),
+        Fun(Fake, Client, FileHash, Data)
+    after
+        xet_fake_s3:stop(Fake)
+    end.
+
+%% One 4-chunk xorb, served as two V2 fetch entries of two chunks each.
+seed_fake_cas(Fake, Base) ->
+    Chunks = [xet_test_vectors:splitmix64_data(9000 + I, I) || I <- lists:seq(1, 4)],
+    {ok, Enc} = xet_xorb:encode(Chunks, #{nonce => <<0, 0, 0, 0>>}),
+    ok = xet_fake_s3:put_object(Fake, <<"x/xorb">>, maps:get(bin, Enc)),
+    Entries = lists:zip(maps:get(chunk_hashes, Enc), maps:get(unpacked_sizes, Enc)),
+    FileHash = xet_hash:file_hash(Entries),
+    CasStr = xet_hash:to_string(maps:get(hash, Enc)),
+    Data = iolist_to_binary(Chunks),
+    Boundaries = maps:get(boundary_offsets, Enc),
+    Recon = #{
+        offset_into_first_range => 0,
+        terms => [
+            #{
+                hash => CasStr,
+                range => #{start => 0, 'end' => 4},
+                unpacked_length => byte_size(Data)
+            }
+        ],
+        xorbs => #{
+            CasStr => [fetch_entry(Base, Boundaries, R) || R <- [{0, 2}, {2, 4}]]
+        }
+    },
+    Path = <<"api/v2/reconstructions/", (xet_hash:to_string(FileHash))/binary>>,
+    ok = xet_fake_s3:put_object(Fake, Path, iolist_to_binary(json:encode(Recon))),
+    {FileHash, Data}.
+
+fetch_entry(Base, Boundaries, {S, E} = Range) ->
+    {BS, BE} = xet_xorb:chunk_byte_range(Boundaries, Range),
+    #{
+        url => <<Base/binary, "/x/xorb">>,
+        ranges => [#{chunks => #{start => S, 'end' => E}, bytes => #{start => BS, 'end' => BE - 1}}]
+    }.

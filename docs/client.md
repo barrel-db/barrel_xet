@@ -14,8 +14,9 @@ Client = xet_client:new(#{
 ```
 
 Options: `dialect` (`draft` default, or `hf`), `retry` (merged over the
-xet-core defaults), `concurrency`, `circuit_breaker`, `shard_cache`,
-`chunk_cache`, and a `{refresh, Fun}` token provider.
+xet-core defaults), `fetch_retry` (the same, for xorb data fetches),
+`concurrency`, `circuit_breaker`, `shard_cache`, `chunk_cache`, and a
+`{refresh, Fun}` token provider.
 
 Tokens go over TLS only: with a token, an `http` endpoint that is not
 loopback (`localhost`, `127.0.0.1`, `::1`) makes `new/1` raise
