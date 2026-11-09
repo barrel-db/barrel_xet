@@ -5,10 +5,11 @@
 %%
 %% The upload form is parsed tolerantly: a trailing footer is accepted
 %% and ignored (zig-xet always sends one), the body sections are not.
-%% Every referenced xorb must already exist; the shard's CAS layout and
-%% verification hashes are checked against the server's own metadata
-%% before anything registers. result 0 means every file hash was
-%% already present, 1 that registration happened.
+%% Every referenced xorb must already exist; the shard's CAS layout, file
+%% hashes and verification hashes are checked against the server's own
+%% metadata before anything registers. Already-registered files are kept
+%% as they are. result 0 means every file hash was already present, 1
+%% that registration happened.
 -module(xet_h_shards).
 
 -export([upload/1]).
@@ -99,6 +100,7 @@ check_files([], _Xorbs) ->
 check_files([File | Rest], Xorbs) ->
     maybe
         ok ?= check_term_bounds(maps:get(terms, File), Xorbs),
+        ok ?= check_file_hash(File, Xorbs),
         ok ?= check_verification(File, Xorbs),
         check_files(Rest, Xorbs)
     end.
@@ -128,28 +130,39 @@ check_verification(#{terms := Terms} = File, Xorbs) ->
             end
     end.
 
-term_hashes(#{cas_hash := Hash, chunk_start := S, chunk_end := E}, Xorbs) ->
+%% The file hash is derived from the chunks the terms name (spec 6.3); a
+%% shard cannot claim a hash its terms do not produce (14.1).
+check_file_hash(#{file_hash := FileHash, terms := Terms}, Xorbs) ->
+    Entries = lists:append([term_entries(T, Xorbs) || T <- Terms]),
+    case xet_hash:file_hash(Entries) of
+        FileHash -> ok;
+        _ -> {error, <<"file_hash_mismatch">>}
+    end.
+
+term_entries(#{cas_hash := Hash, chunk_start := S, chunk_end := E}, Xorbs) ->
     #{entries := Entries} = maps:get(Hash, Xorbs),
-    [H || {H, _} <- lists:sublist(Entries, S + 1, E - S)].
+    lists:sublist(Entries, S + 1, E - S).
+
+term_hashes(Term, Xorbs) ->
+    [H || {H, _} <- term_entries(Term, Xorbs)].
 
 term_sizes(#{chunk_start := S, chunk_end := E}, Entries) ->
     [Size || {_, Size} <- lists:sublist(Entries, S + 1, E - S)].
 
+%% Keep-first: a file hash already registered is never rewritten. Its
+%% content is identical by hash, so a new term layout gains nothing.
 register_shard(#{metadata := Metadata}, Files, Cas, Xorbs) ->
-    AllPresent = lists:all(
-        fun(F) -> xet_metadata:file_exists(Metadata, maps:get(file_hash, F)) end,
-        Files
-    ),
-    FileMetas = [file_meta(F) || F <- Files],
+    New = [F || F <- Files, not xet_metadata:file_exists(Metadata, maps:get(file_hash, F))],
+    FileMetas = [file_meta(F) || F <- New],
     Eligible = eligible_chunks(Files, Cas, Xorbs),
     case xet_metadata:register_files(Metadata, FileMetas, Eligible) of
         ok ->
             xet_metrics:count(<<"xet.shards.registered">>, 1),
             xet_metrics:count(<<"xet.files.registered">>, length(FileMetas)),
             Result =
-                case AllPresent of
-                    true -> 0;
-                    false -> 1
+                case New of
+                    [] -> 0;
+                    _ -> 1
                 end,
             livery_resp:json(200, json:encode(#{result => Result}));
         {error, Reason} ->

@@ -102,7 +102,9 @@ download_to_file(Config) ->
     ?assertEqual({ok, Data}, file:read_file(Out)).
 
 %% A file registered with a wrong file hash must fail verification on a
-%% full download rather than return corrupt bytes.
+%% full download rather than return corrupt bytes. The server refuses such
+%% a shard, so the forged entry is written straight into its metadata,
+%% standing in for a hostile or buggy server.
 file_hash_mismatch_detected(Config) ->
     Client = client(Config),
     Data = xet_test_vectors:splitmix64_data(200000, 88),
@@ -121,7 +123,10 @@ file_hash_mismatch_detected(Config) ->
         verification => [xet_hash:verification_hash([H || {H, _} <- Entries])]
     },
     ShardBin = xet_shard:encode_upload(#{files => [File], cas => []}),
-    {ok, _} = xet_client:upload_shard(Client, ShardBin),
+    ?assertMatch({error, _}, xet_client:upload_shard(Client, ShardBin)),
+    #{metadata := Metadata} = xet_server:env(xet_dl_server),
+    Meta = #{file_hash => WrongHash, total_len => byte_size(Data), terms => maps:get(terms, File)},
+    ok = xet_metadata:register_files(Metadata, [Meta], []),
     ?assertEqual(
         {error, file_hash_mismatch},
         xet_client_download:download_data(Client, WrongHash)

@@ -21,6 +21,8 @@
     shard_missing_xorb/1,
     shard_bad_verification/1,
     shard_cas_mismatch/1,
+    shard_file_hash_mismatch/1,
+    shard_keep_first/1,
     shard_footered_tolerated/1,
     shard_bare_alias/1,
     reconstruction_full/1,
@@ -65,6 +67,8 @@ all() ->
         shard_missing_xorb,
         shard_bad_verification,
         shard_cas_mismatch,
+        shard_file_hash_mismatch,
+        shard_keep_first,
         shard_footered_tolerated,
         shard_bare_alias,
         reconstruction_full,
@@ -350,6 +354,45 @@ shard_cas_mismatch(_Config) ->
             #{<<"error">> => <<"cas_mismatch">>}, #{<<"error">> => <<"bad_chunk_entry">>}
         ])
     ).
+
+%% A shard cannot claim a file hash its terms do not produce.
+shard_file_hash_mismatch(_Config) ->
+    World = shard_world([51, 52]),
+    Forged = <<1:256>>,
+    File = maps:put(file_hash, Forged, maps:get(file, World)),
+    Bin = xet_shard:encode_upload(#{files => [File], cas => []}),
+    {Status, Body} = post_shard(base(), "/api/v1/shards", Bin),
+    ?assertEqual(400, Status),
+    ?assertEqual(#{<<"error">> => <<"file_hash_mismatch">>}, json:decode(Body)),
+    Env = xet_server:env(xet_api_server),
+    ?assertEqual(not_found, xet_metadata:get_file(maps:get(metadata, Env), Forged)).
+
+%% Re-registering a file under a different valid term layout keeps the
+%% original entry.
+shard_keep_first(_Config) ->
+    World = shard_world([53, 54, 55]),
+    File = maps:get(file, World),
+    Bin = xet_shard:encode_upload(#{files => [File], cas => []}),
+    {200, _} = post_shard(base(), "/api/v1/shards", Bin),
+    [Term] = maps:get(terms, File),
+    [{H0, S0} | Tail] = maps:get(entries, World),
+    Split = [
+        Term#{chunk_end := 1, unpacked_len := S0},
+        Term#{chunk_start := 1, unpacked_len := lists:sum([S || {_, S} <- Tail])}
+    ],
+    Relaid = File#{
+        terms := Split,
+        verification := [
+            xet_hash:verification_hash([H0]),
+            xet_hash:verification_hash([H || {H, _} <- Tail])
+        ]
+    },
+    Bin2 = xet_shard:encode_upload(#{files => [Relaid], cas => []}),
+    {200, Body} = post_shard(base(), "/api/v1/shards", Bin2),
+    ?assertEqual(#{<<"result">> => 0}, json:decode(Body)),
+    Env = xet_server:env(xet_api_server),
+    {ok, Meta} = xet_metadata:get_file(maps:get(metadata, Env), maps:get(file_hash, World)),
+    ?assertEqual([Term], maps:get(terms, Meta)).
 
 %% zig-xet style: footered payload on the upload endpoint is accepted,
 %% the tail ignored.
