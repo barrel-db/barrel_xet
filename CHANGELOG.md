@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A request sent right after a HEAD, 204 or 304 response on the same
+  HTTP/1.1 connection could fail to parse, because those empty responses
+  carried a stray chunked terminator. Clients that reuse connections saw
+  the next request fail; the client's retries hid it. Empty responses now
+  carry no body at all.
+
 ## 0.2.0
 
 The server is now ready to run on its own in production: validated
