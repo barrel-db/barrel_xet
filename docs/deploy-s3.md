@@ -81,3 +81,10 @@ The `xet_store_s3` CT suite runs the same operations against Garage when
   so an invalid xorb never reaches the bucket.
 - The signed-data endpoint (`/api/v1/xorbs/{ns}/{hash}/data`) is not used
   with S3; reconstruction returns bucket presigned URLs directly.
+- Objects are written with `Cache-Control: public, immutable` (xorbs never
+  change), and presigned URLs override the response `Cache-Control` with
+  a `max-age` equal to the URL's lifetime, so a CDN or proxy never serves
+  the bytes past it (spec 13.6.1).
+- S3 computes object ETags itself (an MD5 digest), so the `ETag` is not
+  the xorb hash as it is on the filesystem backend. Clients verify chunks
+  by hash anyway.

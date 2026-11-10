@@ -214,9 +214,14 @@ requires_auth(<<"/healthz">>) ->
 requires_auth(<<"/readyz">>) ->
     false;
 requires_auth(Path) ->
-    %% The data endpoint authenticates by URL signature (spec 13.7.1);
-    %% intermediaries and browsers fetch it without bearer tokens.
-    binary:longest_common_suffix([Path, <<"/data">>]) =/= 5.
+    %% Only the data route (<v1 prefix>/xorbs/:ns/:hash/data) authenticates
+    %% by URL signature (spec 13.7.1); intermediaries and browsers fetch it
+    %% without bearer tokens. Any other path ending in /data still needs one.
+    case binary:split(Path, <<"/">>, [global]) of
+        [<<>>, <<"api">>, <<"v1">>, <<"xorbs">>, _Ns, _Hash, <<"data">>] -> false;
+        [<<>>, <<"v1">>, <<"xorbs">>, _Ns, _Hash, <<"data">>] -> false;
+        _ -> true
+    end.
 
 %% Admin endpoints need the admin scope regardless of method; otherwise
 %% GET/HEAD are reads and the mutating verbs writes (OpenAPI scopes).

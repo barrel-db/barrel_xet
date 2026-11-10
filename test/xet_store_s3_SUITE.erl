@@ -124,8 +124,20 @@ presign(Config) ->
     ok = xet_blob_store:put(Store, ?NS, <<25:256>>, Data),
     {ok, Url} = xet_blob_store:presign(Store, ?NS, <<25:256>>, 900),
     ?assert(is_binary(Url)),
-    {ok, 200, _Headers, Body} = hackney:request(get, Url, [], <<>>, [with_body]),
-    ?assertEqual(Data, Body).
+    %% Spec 13.6.1: cacheable as immutable, never past the URL's life.
+    #{query := Query} = uri_string:parse(Url),
+    Params = uri_string:dissect_query(Query),
+    Expected = <<"public, immutable, max-age=900">>,
+    ?assertEqual(Expected, proplists:get_value(<<"response-cache-control">>, Params)),
+    {ok, 200, Headers, Body} = hackney:request(get, Url, [], <<>>, [with_body]),
+    ?assertEqual(Data, Body),
+    %% Real S3 (Garage) applies the override; the fake ignores it.
+    case
+        proplists:get_value(<<"cache-control">>, [{string:lowercase(K), V} || {K, V} <- Headers])
+    of
+        undefined -> ok;
+        Served -> ?assertEqual(Expected, Served)
+    end.
 
 %% The livery_s3 client retries transient 5xx on an idempotent PUT with
 %% a full-binary body (xorb uploads always are): two 503s then success.

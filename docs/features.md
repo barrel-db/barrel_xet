@@ -121,7 +121,7 @@ Gaps found by a conformance audit against draft-denis-xet-05.
 - [x] T12.6 Shard lookup-table indices in entry units
 - [x] T12.7 TLS-only tokens and scheme-correct signed URLs
 - [x] T12.8 Client fetch retry and V2 multi-entry parsing
-- [ ] T12.9 S3 presigned cache headers + data-route auth match
+- [x] T12.9 S3 presigned cache headers + data-route auth match
 - [ ] T12.10 Negative decode tests for xorb and shard rejects
 
 ## 0.2.0 acceptance

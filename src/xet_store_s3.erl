@@ -36,7 +36,9 @@ put(#{client := Client, bucket := Bucket} = State, Ns, Hash, Body) ->
             false ->
                 case
                     livery_s3:put_object(Client, Bucket, Key, Body, #{
-                        content_type => <<"application/octet-stream">>
+                        content_type => <<"application/octet-stream">>,
+                        %% Xorbs are immutable by hash (spec 13.1).
+                        cache_control => <<"public, immutable, max-age=31536000">>
                     })
                 of
                     {ok, _} ->
@@ -85,13 +87,18 @@ delete(#{client := Client, bucket := Bucket}, Ns, Hash) ->
     end.
 
 %% Presigned GET for fetch_info URLs; the client applies byte ranges as
-%% HTTP Range headers on top.
+%% HTTP Range headers on top. The response Cache-Control is overridden so
+%% caches never keep the bytes past the URL's validity (spec 13.6.1).
+%% S3 ETags are MD5 digests and cannot carry the xorb hash.
 -spec presign(map(), binary(), xet_hash:hash(), pos_integer()) ->
     {ok, binary()} | {error, term()}.
 presign(#{client := Client, bucket := Bucket}, Ns, Hash, ExpiresSecs) ->
     maybe
         {ok, Key} ?= key(Ns, Hash),
-        livery_s3:presign(Client, get, Bucket, Key, ExpiresSecs)
+        CacheControl = <<"public, immutable, max-age=", (integer_to_binary(ExpiresSecs))/binary>>,
+        livery_s3:presign(Client, get, Bucket, Key, ExpiresSecs, #{
+            response_cache_control => CacheControl
+        })
     end.
 
 key(Ns, Hash) ->

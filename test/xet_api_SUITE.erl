@@ -212,7 +212,21 @@ unauthorized(_Config) ->
     {ok, Status, _, _} = hackney:request(
         post, base() ++ path_for(Enc), [], maps:get(bin, Enc), [with_body, {pool, false}]
     ),
-    ?assertEqual(401, Status).
+    ?assertEqual(401, Status),
+    %% Only the data route is bearer-exempt, not every path ending in /data.
+    lists:foreach(
+        fun({Method, Path}) ->
+            {ok, S, _, _} = hackney:request(
+                Method, base() ++ Path, [], <<>>, [with_body, {pool, false}]
+            ),
+            ?assertEqual({Method, Path, 401}, {Method, Path, S})
+        end,
+        [
+            {get, "/api/v1/reconstructions/data"},
+            {delete, "/admin/files/data"},
+            {get, "/api/v1/xorbs/default/data"}
+        ]
+    ).
 
 oversize_rejected(Config) ->
     DataDir = filename:join(proplists:get_value(priv_dir, Config), "tinycap"),
