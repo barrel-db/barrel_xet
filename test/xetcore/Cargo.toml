@@ -1,0 +1,9 @@
+[package]
+name = "xetcore-check"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Reads barrel_xet shards through xet-core's own shard reader (xet_xetcore_SUITE)."
+
+[dependencies]
+xet-core-structures = "=1.8.1"
