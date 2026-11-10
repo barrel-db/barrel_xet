@@ -155,7 +155,16 @@ assert_backup_reopens(Name, BackupDir) ->
     Target = filename:join(BackupDir, "metadata"),
     ok = filelib:ensure_path(BackupDir),
     ok = xet_metadata:checkpoint(Meta, Target),
-    {ok, Copy} = xet_metadata:open(xet_metadata_rocksdb, #{dir => Target}),
+    assert_reopens(Target),
+    %% The incremental engine under the same traffic: back up, restore
+    %% into a fresh directory, reopen.
+    {ok, _} = xet_metadata:backup(Meta, filename:join(BackupDir, "engine"), 2),
+    Restored = filename:join(BackupDir, "restored"),
+    ok = xet_metadata_backup:restore_latest(filename:join(BackupDir, "engine"), Restored),
+    assert_reopens(Restored).
+
+assert_reopens(Dir) ->
+    {ok, Copy} = xet_metadata:open(xet_metadata_rocksdb, #{dir => Dir}),
     try
         ?assert(maps:get(files, xet_metadata:stats(Copy)) >= 16)
     after

@@ -21,6 +21,7 @@
     delete_file/1,
     delete_xorb/1,
     checkpoint/1,
+    incremental_backup_restore/1,
     tuned_open/1
 ]).
 
@@ -41,6 +42,7 @@ all() ->
         delete_file,
         delete_xorb,
         checkpoint,
+        incremental_backup_restore,
         tuned_open
     ].
 
@@ -291,6 +293,32 @@ checkpoint(Config) ->
         %% The write after the checkpoint is not in the snapshot.
         ?assertEqual(not_found, xet_metadata:get_xorb(Copy, <<2:256>>)),
         ?assertEqual(1, maps:get(xorbs, xet_metadata:stats(Copy)))
+    after
+        ok = xet_metadata:close(Copy)
+    end.
+
+%% Incremental backups keep the newest Keep, verify, and the newest one
+%% restores into a fresh directory with the data it held, and not the
+%% writes made after it.
+incremental_backup_restore(Config) ->
+    Db = db(Config),
+    BackupDir = filename:join(proplists:get_value(dir, Config), "engine_backups"),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(1)),
+    {ok, #{id := First}} = xet_metadata:backup(Db, BackupDir, 1),
+    ok = xet_metadata:register_files(Db, [file_meta(1)], [{<<10:256>>, <<1:256>>, 0}]),
+    {ok, #{id := Second}} = xet_metadata:backup(Db, BackupDir, 1),
+    ok = xet_metadata:register_xorb(Db, xorb_meta(2)),
+    %% keep => 1 purged the first backup.
+    {ok, [#{id := Second}]} = xet_metadata_backup:list(BackupDir),
+    ?assertEqual(not_found, xet_metadata_backup:verify(BackupDir, First)),
+    ?assertEqual(ok, xet_metadata_backup:verify(BackupDir, Second)),
+    Restored = filename:join(proplists:get_value(dir, Config), "restored"),
+    ok = xet_metadata_backup:restore_latest(BackupDir, Restored),
+    {ok, Copy} = xet_metadata:open(xet_metadata_rocksdb, #{dir => Restored}),
+    try
+        ?assertEqual({ok, xorb_meta(1)}, xet_metadata:get_xorb(Copy, <<1:256>>)),
+        ?assertEqual({ok, file_meta(1)}, xet_metadata:get_file(Copy, <<1:256>>)),
+        ?assertEqual(not_found, xet_metadata:get_xorb(Copy, <<2:256>>))
     after
         ok = xet_metadata:close(Copy)
     end.

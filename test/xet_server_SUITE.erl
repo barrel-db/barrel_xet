@@ -32,6 +32,7 @@
     spool_startup_sweep/1,
     reconstruction_missing_xorb/1,
     admin_backup/1,
+    admin_backups_incremental/1,
     graceful_drain/1
 ]).
 
@@ -61,6 +62,7 @@ all() ->
         spool_startup_sweep,
         reconstruction_missing_xorb,
         admin_backup,
+        admin_backups_incremental,
         graceful_drain
     ].
 
@@ -532,7 +534,7 @@ admin_backup(Config) ->
     try
         {ok, 200, _, Body} = hackney:request(
             post,
-            base_url(xet_backup_server) ++ "/admin/backup",
+            base_url(xet_backup_server) ++ "/admin/backup?mode=checkpoint",
             [{<<"authorization">>, <<"Bearer root">>}],
             <<>>,
             [with_body, {pool, false}]
@@ -543,6 +545,45 @@ admin_backup(Config) ->
     after
         ok = xet_server:stop(xet_backup_server)
     end.
+
+%% Incremental backups: each POST adds one, the list is newest first, a
+%% backup verifies, and unknown or malformed ids and non-admin tokens are
+%% refused.
+admin_backups_incremental(Config) ->
+    Dir = filename:join(proplists:get_value(priv_dir, Config), "incrsrv"),
+    {ok, _} = xet_server:start(#{
+        name => xet_incr_server,
+        data_dir => Dir,
+        admin => #{enabled => true},
+        backup_dir => filename:join(Dir, "backups"),
+        auth => {xet_auth_static, #{tokens => #{<<"root">> => admin, <<"w">> => write}}}
+    }),
+    Base = base_url(xet_incr_server),
+    try
+        {200, First} = admin_req(Base, post, "/admin/backup", <<"root">>),
+        ?assertMatch(#{<<"mode">> := <<"incremental">>, <<"id">> := _}, First),
+        #{metadata := Meta} = xet_server:env(xet_incr_server),
+        ok = xet_metadata:put_url_secret(Meta, crypto:strong_rand_bytes(32)),
+        {200, #{<<"id">> := Second}} = admin_req(Base, post, "/admin/backup", <<"root">>),
+        ?assert(Second > maps:get(<<"id">>, First)),
+        {200, #{<<"backups">> := Backups}} = admin_req(Base, get, "/admin/backups", <<"root">>),
+        ?assertEqual([Second, maps:get(<<"id">>, First)], [maps:get(<<"id">>, B) || B <- Backups]),
+        Verify = "/admin/backups/" ++ integer_to_list(Second) ++ "/verify",
+        ?assertMatch({200, #{<<"verified">> := true}}, admin_req(Base, post, Verify, <<"root">>)),
+        ?assertMatch({404, _}, admin_req(Base, post, "/admin/backups/999/verify", <<"root">>)),
+        ?assertMatch({400, _}, admin_req(Base, post, "/admin/backups/x/verify", <<"root">>)),
+        ?assertMatch({403, _}, admin_req(Base, post, "/admin/backup", <<"w">>))
+    after
+        ok = xet_server:stop(xet_incr_server)
+    end.
+
+admin_req(Base, Method, Path, Token) ->
+    {ok, Status, _, Body} = hackney:request(
+        Method, Base ++ Path, [{<<"authorization">>, <<"Bearer ", Token/binary>>}], <<>>, [
+            with_body
+        ]
+    ),
+    {Status, json:decode(Body)}.
 
 backup_status(Base) ->
     {ok, Status, _, _} = hackney:request(

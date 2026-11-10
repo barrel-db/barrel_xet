@@ -17,6 +17,7 @@
     admin,
     auth,
     backup_dir,
+    backup_keep,
     blob,
     concurrency,
     data_dir,
@@ -196,6 +197,7 @@ defaults(Config) ->
         blob => {fs, #{dir => filename:join(DataDir, "xorbs")}},
         namespaces => [<<"default">>, <<"default-merkledb">>],
         max_body => ?DEFAULT_MAX_BODY,
+        backup_keep => 7,
         %% Serialized xorb cap: 64 MiB of chunk payload plus headers and
         %% footer headroom.
         max_xorb_bytes => 71303168,

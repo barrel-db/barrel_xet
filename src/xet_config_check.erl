@@ -101,7 +101,13 @@ check_port(Proto, Listener) ->
 
 check_sizes(Config) ->
     Positive = [
-        max_body, max_xorb_bytes, max_shard_bytes, url_ttl, key_rotation_interval, drain_timeout
+        max_body,
+        max_xorb_bytes,
+        max_shard_bytes,
+        url_ttl,
+        key_rotation_interval,
+        drain_timeout,
+        backup_keep
     ],
     NonNeg = [spool_memory_max, min_free_bytes],
     lists:flatmap(fun(Key) -> check_pos(Key, maps:get(Key, Config, undefined)) end, Positive) ++

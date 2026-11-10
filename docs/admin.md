@@ -125,3 +125,11 @@ curl -H "Authorization: Bearer ops-token" http://127.0.0.1:8080/admin/scrub
 
 Findings are capped at 100 entries; `corrupt` and `read_errors` are the
 full counts.
+
+## Backups
+
+`POST /admin/backup` takes an incremental metadata backup (or a full
+checkpoint with `?mode=checkpoint`), `GET /admin/backups` lists them
+newest first, and `POST /admin/backups/{id}/verify` checks one. They need
+`backup_dir` in the config. See [Back up and restore](backup.md) for the
+procedure, the ordering with the blob copy, and restore.
