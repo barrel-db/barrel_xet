@@ -1,9 +1,12 @@
 # Deploy the server with S3 storage
 
 This guide runs the CAS server with xorb blobs in an S3-compatible bucket
-(AWS S3, Garage, MinIO, Ceph) instead of the local filesystem. Use it when
-you want object storage and CDN-frontable, presigned download URLs. rocksdb
-still holds the metadata locally.
+(AWS S3, Garage, RustFS, MinIO, Ceph) instead of the local filesystem. Use
+it when you want object storage and CDN-frontable, presigned download URLs.
+rocksdb still holds the metadata locally.
+
+S3 is optional. Without a `blob` setting the server stores blobs on the
+filesystem under `data_dir`, and nothing here applies.
 
 ## When to use
 
@@ -62,18 +65,33 @@ s3 => #{
 exponential backoff. Streamed puts are not retried, but the server
 always uploads xorbs as full binaries.
 
-## Verify against Garage
+## Verify against Garage or RustFS
 
-A single-node Garage in Docker is the integration target:
+Two single-node stores in Docker are the integration targets. Each script
+prints the `XET_S3_*` variables to export:
 
 ```sh
-sh test/docker/garage-up.sh     # prints endpoint/keys/bucket to export
-# ... set the server's blob config to those values, start the server ...
-sh test/docker/garage-down.sh
+bash test/docker/garage-up.sh     # Garage on :3910
+bash test/docker/rustfs-up.sh     # RustFS on :3920
 ```
 
-The `xet_store_s3` CT suite runs the same operations against Garage when
-`XET_S3_ENDPOINT` is set.
+With the variables exported, the `live` group of the S3 suite runs the
+blob-store operations and a full server roundtrip (upload through the
+API, download through presigned URLs):
+
+```sh
+rebar3 ct --suite=xet_store_s3_SUITE
+```
+
+Stop the stores when done:
+
+```sh
+bash test/docker/garage-down.sh
+bash test/docker/rustfs-down.sh
+```
+
+Without `XET_S3_ENDPOINT` the `live` group is skipped; the rest of the
+suite runs against an in-memory fake.
 
 ## Notes
 
@@ -81,10 +99,13 @@ The `xet_store_s3` CT suite runs the same operations against Garage when
   so an invalid xorb never reaches the bucket.
 - The signed-data endpoint (`/api/v1/xorbs/{ns}/{hash}/data`) is not used
   with S3; reconstruction returns bucket presigned URLs directly.
-- Objects are written with `Cache-Control: public, immutable` (xorbs never
-  change), and presigned URLs override the response `Cache-Control` with
-  a `max-age` equal to the URL's lifetime, so a CDN or proxy never serves
-  the bytes past it (spec 13.6.1).
+- Presigned URLs set the response `Cache-Control` to
+  `public, immutable, max-age=<URL lifetime>`, so a CDN or proxy never
+  serves the bytes past it (spec 13.6.1). Objects carry no stored
+  `Cache-Control`: Garage ignores the override on ranged GETs, and a
+  stored long `max-age` would then outlive the URL. Ranged responses
+  from Garage therefore have no `Cache-Control`; RustFS applies the
+  override to them too.
 - S3 computes object ETags itself (an MD5 digest), so the `ETag` is not
   the xorb hash as it is on the filesystem backend. Clients verify chunks
   by hash anyway.

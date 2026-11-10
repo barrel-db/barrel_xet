@@ -14,21 +14,26 @@
     presign/1,
     store_metrics_labeled/1,
     put_survives_transient/1,
-    put_exhausts_retries/1
+    put_exhausts_retries/1,
+    server_roundtrip/1
 ]).
 
 -define(NS, <<"default">>).
+-define(TOKEN, <<"s3-live-token">>).
 
 all() ->
-    [{group, fake}, {group, garage}].
+    [{group, fake}, {group, live}].
 
+%% live runs against whatever XET_S3_ENDPOINT points at: Garage
+%% (test/docker/garage-up.sh) or RustFS (test/docker/rustfs-up.sh).
 groups() ->
     Common = [
         roundtrip, stream_put, missing_blob, idempotent_and_delete, presign, store_metrics_labeled
     ],
-    %% Failure injection is a fake-server feature; Garage runs the rest.
+    %% Failure injection is a fake-server feature; a real S3 runs the
+    %% rest, plus the server end to end over presigned URLs.
     FakeOnly = [put_survives_transient, put_exhausts_retries],
-    [{fake, [], Common ++ FakeOnly}, {garage, [], Common}].
+    [{fake, [], Common ++ FakeOnly}, {live, [], Common ++ [server_roundtrip]}].
 
 init_per_group(fake, Config) ->
     {ok, _} = application:ensure_all_started(livery),
@@ -48,23 +53,28 @@ init_per_group(fake, Config) ->
         }
     }),
     [{store, Store}, {fake, Fake} | Config];
-init_per_group(garage, Config) ->
+init_per_group(live, Config) ->
     case os:getenv("XET_S3_ENDPOINT") of
         false ->
-            {skip, "XET_S3_ENDPOINT not set; run test/docker/garage-up.sh"};
-        Endpoint ->
+            {skip,
+                "XET_S3_ENDPOINT not set; run test/docker/garage-up.sh or test/docker/rustfs-up.sh"};
+        _ ->
             {ok, _} = application:ensure_all_started(livery_s3),
-            {ok, Store} = xet_blob_store:open(xet_store_s3, #{
-                bucket => list_to_binary(os:getenv("XET_S3_BUCKET", "barrel-xet-test")),
-                s3 => #{
-                    endpoint => list_to_binary(Endpoint),
-                    region => list_to_binary(os:getenv("XET_S3_REGION", "garage")),
-                    access_key_id => list_to_binary(os:getenv("XET_S3_ACCESS_KEY", "")),
-                    secret_access_key => list_to_binary(os:getenv("XET_S3_SECRET_KEY", ""))
-                }
-            }),
+            {ok, Store} = xet_blob_store:open(xet_store_s3, s3_opts()),
             [{store, Store} | Config]
     end.
+
+%% Blob-store options for the live S3 named by the XET_S3_* variables.
+s3_opts() ->
+    #{
+        bucket => list_to_binary(os:getenv("XET_S3_BUCKET", "barrel-xet-test")),
+        s3 => #{
+            endpoint => list_to_binary(os:getenv("XET_S3_ENDPOINT")),
+            region => list_to_binary(os:getenv("XET_S3_REGION", "garage")),
+            access_key_id => list_to_binary(os:getenv("XET_S3_ACCESS_KEY", "")),
+            secret_access_key => list_to_binary(os:getenv("XET_S3_SECRET_KEY", ""))
+        }
+    }.
 
 end_per_group(fake, Config) ->
     ok = xet_fake_s3:stop(proplists:get_value(fake, Config)),
@@ -131,13 +141,17 @@ presign(Config) ->
     ?assertEqual(Expected, proplists:get_value(<<"response-cache-control">>, Params)),
     {ok, 200, Headers, Body} = hackney:request(get, Url, [], <<>>, [with_body]),
     ?assertEqual(Data, Body),
-    %% Real S3 (Garage) applies the override; the fake ignores it.
-    case
-        proplists:get_value(<<"cache-control">>, [{string:lowercase(K), V} || {K, V} <- Headers])
-    of
-        undefined -> ok;
-        Served -> ?assertEqual(Expected, Served)
-    end.
+    %% Whatever a backend serves, full or ranged (clients always send
+    %% Range), it is the override or nothing: never a longer max-age.
+    %% The fake ignores the override; Garage drops it on ranged GETs.
+    ?assert(lists:member(cache_control(Headers), [undefined, Expected])),
+    {ok, 206, Ranged, <<"pre">>} = hackney:request(
+        get, Url, [{<<"range">>, <<"bytes=0-2">>}], <<>>, [with_body]
+    ),
+    ?assert(lists:member(cache_control(Ranged), [undefined, Expected])).
+
+cache_control(Headers) ->
+    proplists:get_value(<<"cache-control">>, [{string:lowercase(K), V} || {K, V} <- Headers]).
 
 %% The livery_s3 client retries transient 5xx on an idempotent PUT with
 %% a full-binary body (xorb uploads always are): two 503s then success.
@@ -175,3 +189,34 @@ store_metrics_labeled(Config) ->
     Present(<<"xet.store.write.bytes">>),
     Present(<<"xet.store.read.bytes">>),
     Present(<<"backend=\"s3\"">>).
+
+%% The server on a real S3, end to end: the client uploads through the
+%% API, then downloads through the bucket's presigned URLs (SigV4 query
+%% signing, the Cache-Control override, and a client Range header).
+server_roundtrip(Config) ->
+    {ok, _} = application:ensure_all_started([barrel_xet, hackney]),
+    {ok, _} = xet_server:start(#{
+        name => xet_s3_live_server,
+        data_dir => filename:join(proplists:get_value(priv_dir, Config), "live"),
+        blob => {s3, s3_opts()},
+        auth => {xet_auth_static, #{tokens => #{?TOKEN => write}}}
+    }),
+    try
+        Endpoint =
+            <<"http://127.0.0.1:",
+                (integer_to_binary(xet_server:port(xet_s3_live_server)))/binary>>,
+        Client = xet_client:new(#{endpoint => Endpoint, token => ?TOKEN}),
+        Data = xet_test_vectors:splitmix64_data(300000, erlang:unique_integer([positive])),
+        {ok, #{file_hash := Hash}} = xet_client_upload:upload_data(Client, live, Data),
+        {ok, Recon} = xet_client:get_reconstruction(Client, Hash),
+        [[#{<<"url">> := Url} | _] | _] = maps:values(maps:get(<<"xorbs">>, Recon)),
+        %% Fetch URLs point at the bucket, not at the server's data route.
+        ?assertEqual(nomatch, binary:match(Url, <<"/data?">>)),
+        ?assertEqual({ok, Data}, xet_client_download:download_data(Client, Hash)),
+        ?assertEqual(
+            {ok, binary:part(Data, 100000, 50001)},
+            xet_client_download:download_range(Client, Hash, {100000, 150000})
+        )
+    after
+        ok = xet_server:stop(xet_s3_live_server)
+    end.
