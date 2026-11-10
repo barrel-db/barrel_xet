@@ -153,7 +153,13 @@ Each end-state item maps to a named test or smoke step (T12.1 sweep).
 - JWT/OIDC auth, IP-keyed rate limiting (needs peer IP in livery)
 - Batch reconstructions, file-chunk-hashes endpoint (X-Range-Dirty)
 - multipart/byteranges data responses
-- Adaptive concurrency, HF Hub token exchange, barrel_docdb metadata backend
+- Adaptive concurrency, barrel_docdb metadata backend
+- HF Hub compatibility, to work as a transparent replacement. xet-core
+  (hf_xet) already talks to the CAS unchanged; `huggingface_hub` goes
+  through the Hub first. Two levels: the xet token exchange endpoints
+  (`/api/{type}s/{repo}/xet-read-token/{rev}`, `xet-write-token`), or a
+  Hub API subset (repos, revisions, `/resolve`, preupload and commit) so
+  `HF_ENDPOINT` can point at barrel_xet
 - Multi-arch Docker images, FreeBSD CI builds and pkg(8) packages
 - CLI admin subcommands
 - Per-repository access control (spec 14.4); the server is single-tenant
