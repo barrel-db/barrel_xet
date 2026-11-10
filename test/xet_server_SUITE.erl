@@ -741,7 +741,7 @@ metrics_endpoint(Config) ->
     ),
     %% instrument keeps OTel semantic-convention names verbatim (dots
     %% intact; Prometheus 3.x scrapes UTF-8 names).
-    ?assertNotEqual(nomatch, binary:match(Body, <<"http.server.request.duration">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"http_server_request_duration">>)),
     %% metrics => false removes the route entirely.
     Dir = filename:join(proplists:get_value(priv_dir, Config), "nometrics"),
     {ok, _} = xet_server:start(#{

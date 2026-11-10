@@ -28,10 +28,14 @@ scrape_configs:
 
 Set `metrics => false` in the server map to remove the endpoint.
 
-Metric names follow OpenTelemetry semantic conventions and keep their
-dots (for example `http.server.request.duration`). Prometheus 3.x
-scrapes these UTF-8 names as-is; older scrapers need dots rewritten to
-underscores at the scrape layer.
+Metric names follow OpenTelemetry semantic conventions, with dots (for
+example `http.server.request.duration`); OTLP exports them that way. The
+Prometheus endpoint rewrites them to Prometheus names: dots become
+underscores, counters end in `_total`, and attributes are labels. So
+`xet.store.write.bytes` with `backend` is scraped as
+`xet_store_write_bytes_total{backend="fs"}`, and
+`http.server.request.duration` as `http_server_request_duration`. A
+metric appears after its first write, not as a zero before.
 
 ### OTLP push
 

@@ -12,12 +12,6 @@
 
 -export([create/3, list/1, verify/2, restore_latest/2]).
 
-%% rocksdb 3.1.0's spec for get_backup_info/1 says it returns a list of
-%% maps keyed id; the NIF returns {ok, List} with maps keyed backup_id.
-%% infos/1 follows what the NIF returns, so dialyzer must not trust the
-%% spec here.
--dialyzer({nowarn_function, [infos/1, rename/1]}).
-
 -type info() :: #{
     id := non_neg_integer(),
     timestamp := non_neg_integer(),
@@ -83,14 +77,13 @@ with_engine(BackupDir, Fun) ->
 %% Backups newest first. The engine reports each as backup_id,
 %% timestamp, size and number_files.
 infos(Engine) ->
-    case rocksdb:get_backup_info(Engine) of
-        {ok, Infos} ->
-            {ok, lists:sort(fun(#{id := A}, #{id := B}) -> A >= B end, [rename(I) || I <- Infos])};
-        {error, _} = Error ->
-            Error
-    end.
+    {ok, Infos} = rocksdb:get_backup_info(Engine),
+    {ok, lists:sort(fun(#{id := A}, #{id := B}) -> A >= B end, [rename(I) || I <- Infos])}.
 
-rename(#{backup_id := Id, timestamp := Ts, size := Size, number_files := Files}) ->
+%% rocksdb 3.2.1's backup_info() type keys the id as `id`, while the NIF
+%% sends `backup_id`; accept either.
+rename(#{timestamp := Ts, size := Size, number_files := Files} = Info) ->
+    Id = maps:get(backup_id, Info, maps:get(id, Info, 0)),
     #{id => Id, timestamp => Ts, size => Size, files => Files}.
 
 to_list(Path) -> unicode:characters_to_list(Path).

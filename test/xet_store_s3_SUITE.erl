@@ -189,9 +189,9 @@ store_metrics_labeled(Config) ->
     {ok, _} = xet_blob_store:get_range(Store, ?NS, <<26:256>>, 0, 777),
     Body = iolist_to_binary(instrument_prometheus:format()),
     Present = fun(Sub) -> ?assertNotEqual(nomatch, binary:match(Body, Sub)) end,
-    Present(<<"xet.store.op.duration">>),
-    Present(<<"xet.store.write.bytes">>),
-    Present(<<"xet.store.read.bytes">>),
+    Present(<<"xet_store_op_duration">>),
+    Present(<<"xet_store_write_bytes_total">>),
+    Present(<<"xet_store_read_bytes_total">>),
     Present(<<"backend=\"s3\"">>).
 
 %% The server on a real S3, end to end: the client uploads through the

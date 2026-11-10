@@ -16,4 +16,4 @@ records_into_registry_test() ->
     {ok, _} = application:ensure_all_started(instrument),
     ok = xet_metrics:count(<<"xet.test.recorded">>, 3),
     Body = iolist_to_binary(instrument_prometheus:format()),
-    ?assertNotEqual(nomatch, binary:match(Body, <<"xet.test.recorded">>)).
+    ?assertNotEqual(nomatch, binary:match(Body, <<"xet_test_recorded_total">>)).

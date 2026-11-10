@@ -16,6 +16,18 @@
 - The `xet` command line has `xet admin` subcommands for stats, garbage
   collection, scrub, backups and file deletion.
 
+### Changed
+
+- Prometheus metric names changed. They are now underscored, counters end
+  in `_total`, and attributes are labels: `xet.store.write.bytes` is
+  scraped as `xet_store_write_bytes_total{backend="fs"}`, and the HTTP
+  request metrics as `http_server_request_duration` and
+  `http_server_active_requests` with method, status, protocol and scheme
+  labels. Update dashboards and alerts. OTLP export keeps the dotted
+  names. A metric now appears after its first write instead of as a
+  zero.
+- Requires livery 0.12 and rocksdb 3.2.
+
 ### Fixed
 
 - A request sent right after a HEAD, 204 or 304 response on the same

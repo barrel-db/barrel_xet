@@ -803,11 +803,11 @@ metrics_counters(_Config) ->
         [with_body, {pool, false}]
     ),
     Present = fun(Name) -> ?assertNotEqual(nomatch, binary:match(Body, Name)) end,
-    Present(<<"xet.xorbs.uploaded">>),
-    Present(<<"xet.xorbs.uploaded.bytes">>),
-    Present(<<"xet.xorbs.dedup_hits">>),
-    Present(<<"xet.shards.registered">>),
-    Present(<<"xet.files.registered">>).
+    Present(<<"xet_xorbs_uploaded_total">>),
+    Present(<<"xet_xorbs_uploaded_bytes_total">>),
+    Present(<<"xet_xorbs_dedup_hits_total">>),
+    Present(<<"xet_shards_registered_total">>),
+    Present(<<"xet_files_registered_total">>).
 
 %% DELETE /admin/files/{hash}: admin-scoped, removes the file so it no
 %% longer reconstructs; a write token is refused and a second delete 404s.
@@ -900,11 +900,11 @@ metrics_store_and_chunks(_Config) ->
         [with_body, {pool, false}]
     ),
     Present = fun(Name) -> ?assertNotEqual(nomatch, binary:match(Body, Name)) end,
-    Present(<<"xet.store.op.duration">>),
-    Present(<<"xet.store.write.bytes">>),
+    Present(<<"xet_store_op_duration">>),
+    Present(<<"xet_store_write_bytes_total">>),
     Present(<<"backend=\"fs\"">>),
-    Present(<<"xet.chunks.queries">>),
-    Present(<<"xet.chunks.hits">>).
+    Present(<<"xet_chunks_queries_total">>),
+    Present(<<"xet_chunks_hits_total">>).
 
 key_rotation(_Config) ->
     World = registered_file([83, 84]),
