@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### New
+
+- Garbage collection now also removes orphaned blobs on S3: objects with
+  no metadata that are older than the grace window, left by an upload that
+  crashed before it registered. Only keys under the configured namespaces
+  are listed, so other data in a shared bucket is never touched. The
+  credentials need permission to list the bucket.
+- Metadata backups are incremental: each one copies only what changed
+  since the previous backup, and the oldest beyond `backup_keep` (default
+  7) are removed. Backups can be listed and verified, and restored with
+  one command. Full checkpoints are still available.
+- The `xet` command line has `xet admin` subcommands for stats, garbage
+  collection, scrub, backups and file deletion.
+
 ### Fixed
 
 - A request sent right after a HEAD, 204 or 304 response on the same
