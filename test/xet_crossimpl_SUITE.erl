@@ -4,7 +4,9 @@
 %%
 %% The python cases drive the draft's Python reference client against our
 %% server (blake3 + lz4 + requests required; skipped otherwise). The
-%% restart case proves durability and always runs.
+%% hf_xet cases drive xet-core itself, through its Python bindings
+%% (skipped without hf_xet). The restart case proves durability and
+%% always runs.
 -module(xet_crossimpl_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
@@ -13,17 +15,20 @@
 -export([
     python_uploads_we_download/1,
     we_upload_python_downloads/1,
+    hf_xet_uploads_we_download/1,
+    we_upload_hf_xet_downloads/1,
+    hf_xet_global_dedup/1,
     restart_preserves_files/1
 ]).
 
 -define(TOKEN, <<"cross-token">>).
+-define(HF_XET_CASES, [hf_xet_uploads_we_download, we_upload_hf_xet_downloads, hf_xet_global_dedup]).
 
 all() ->
     [
         python_uploads_we_download,
-        we_upload_python_downloads,
-        restart_preserves_files
-    ].
+        we_upload_python_downloads
+    ] ++ ?HF_XET_CASES ++ [restart_preserves_files].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started([barrel_xet, hackney]),
@@ -40,7 +45,16 @@ init_per_testcase(Case, Config) when
         false -> {skip, "python3 with blake3/lz4/requests not available"}
     end;
 init_per_testcase(Case, Config) ->
-    start_server(Case, Config).
+    case lists:member(Case, ?HF_XET_CASES) of
+        true -> init_hf_xet_case(Case, Config);
+        false -> start_server(Case, Config)
+    end.
+
+init_hf_xet_case(Case, Config) ->
+    case python_has("hf_xet") of
+        true -> start_server(Case, Config);
+        false -> {skip, "python3 with hf_xet not available"}
+    end.
 
 start_server(Case, Config) ->
     Name = list_to_atom("xet_cross_" ++ atom_to_list(Case)),
@@ -84,6 +98,49 @@ we_upload_python_downloads(Config) ->
     ?assertEqual(0, run_python(Config, ["download", HashStr, Out])),
     ?assertEqual({ok, Data}, file:read_file(Out)).
 
+%% xet-core uploads a file; we derive the same file hash and download it.
+hf_xet_uploads_we_download(Config) ->
+    Data = xet_test_vectors:splitmix64_data(700000, 5),
+    FileHash = hf_xet_upload(Config, "hfx_in.bin", Data),
+    ?assertEqual(xet_hash:file_hash(entries(Data)), FileHash),
+    ?assertEqual({ok, Data}, xet_client_download:download_data(client(Config), FileHash)).
+
+%% We upload; xet-core downloads it byte-identical (V2 reconstruction,
+%% signed data URLs, ranged fetches).
+we_upload_hf_xet_downloads(Config) ->
+    Data = xet_test_vectors:splitmix64_data(650000, 6),
+    {ok, #{file_hash := FileHash}} = xet_client_upload:upload_data(client(Config), f, Data),
+    Out = temp(Config, "hfx_out.bin"),
+    HashStr = binary_to_list(xet_hash:to_string(FileHash)),
+    Args = ["download", HashStr, integer_to_list(byte_size(Data)), Out],
+    ?assertEqual(0, run_hf_xet(Config, "cache_dl", Args)),
+    ?assertEqual({ok, Data}, file:read_file(Out)).
+
+%% A second xet-core upload sharing most chunks with the first, from a
+%% fresh xet-core cache, so the only way to dedup is the global query
+%% (GET /v1/chunks, our keyed dedup shard). Few new bytes may land.
+hf_xet_global_dedup(Config) ->
+    Base = xet_test_vectors:splitmix64_data(3000000, 7),
+    _ = hf_xet_upload(Config, "hfx_a.bin", Base),
+    Before = stored_bytes(Config),
+    Edited = <<Base/binary, (xet_test_vectors:splitmix64_data(200000, 8))/binary>>,
+    FileHash = hf_xet_upload(Config, "hfx_b.bin", Edited),
+    Added = stored_bytes(Config) - Before,
+    ct:pal("second upload stored ~b new bytes for a ~b-byte file", [Added, byte_size(Edited)]),
+    ?assert(Added < byte_size(Edited) div 2),
+    ?assertEqual({ok, Edited}, xet_client_download:download_data(client(Config), FileHash)).
+
+hf_xet_upload(Config, Name, Data) ->
+    In = write_temp(Config, Name, Data),
+    HashOut = temp(Config, Name ++ ".hash"),
+    ?assertEqual(0, run_hf_xet(Config, "cache_" ++ Name, ["upload", In, HashOut])),
+    {ok, HashStr} = file:read_file(HashOut),
+    xet_hash:from_string(strip(HashStr)).
+
+stored_bytes(Config) ->
+    #{metadata := Metadata} = xet_server:env(server(Config)),
+    maps:get(bytes_on_disk, xet_metadata:stats(Metadata)).
+
 %% Upload files, kill the server node process tree, restart on the same
 %% data dir, and reconstruct: rocksdb + blob durability.
 restart_preserves_files(Config) ->
@@ -119,20 +176,34 @@ restart_preserves_files(Config) ->
 %%--------------------------------------------------------------------
 
 python_ready() ->
+    python_has("blake3, lz4.frame, requests").
+
+python_has(Modules) ->
     case os:find_executable("python3") of
         false ->
             false;
         Py ->
-            Cmd = Py ++ " -c \"import blake3, lz4.frame, requests\" 2>/dev/null; echo $?",
+            Cmd = Py ++ " -c \"import " ++ Modules ++ "\" 2>/dev/null; echo $?",
             string:trim(os:cmd(Cmd)) =:= "0"
     end.
 
 run_python(Config, Args) ->
-    Script = filename:join([project_root(), "test", "python", "xet_interop_driver.py"]),
-    Full = string:join(
-        ["python3", Script, hd(Args), endpoint(Config), binary_to_list(?TOKEN)] ++ tl(Args),
-        " "
-    ),
+    run_script(Config, "xet_interop_driver.py", "", Args).
+
+%% Each hf_xet run gets its own xet-core cache dir, so nothing is
+%% deduplicated from a local cache left by an earlier run.
+run_hf_xet(Config, CacheName, Args) ->
+    Env = "HF_XET_CACHE=" ++ temp(Config, CacheName) ++ " ",
+    run_script(Config, "hf_xet_driver.py", Env, Args).
+
+run_script(Config, ScriptName, Env, Args) ->
+    Script = filename:join([project_root(), "test", "python", ScriptName]),
+    Full =
+        Env ++
+            string:join(
+                ["python3", Script, hd(Args), endpoint(Config), binary_to_list(?TOKEN)] ++ tl(Args),
+                " "
+            ),
     %% Fold stderr into the captured output so a failing driver shows its
     %% traceback in the CT log instead of a bare exit code.
     Output = os:cmd(Full ++ " 2>&1; echo EXIT:$?"),

@@ -12,6 +12,16 @@ server for upload/download.
 Requires `python3` with `blake3`, `lz4`, and `requests`. The suite skips
 the Python cases when they are missing.
 
+`hf_xet_driver.py` drives xet-core itself, through its `hf_xet` Python
+bindings: upload, download, and a second upload that can only dedup
+through the server's global chunk query. Those cases need `hf_xet` and
+skip without it:
+
+```sh
+pip install hf_xet blake3 lz4 requests
+rebar3 ct --suite=xet_crossimpl_SUITE
+```
+
 Note: the reference client stores the shard SHA-256 metadata field raw,
 while xet-core and the Hugging Face fixtures store it byte-swapped;
 barrel_xet matches the latter. This does not affect interop because the

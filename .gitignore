@@ -13,3 +13,4 @@ priv/*.so
 c_src/*.o
 .DS_Store
 test/xetcore/target/
+__pycache__/
