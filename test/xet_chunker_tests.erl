@@ -28,6 +28,13 @@ empty_test() ->
     ?assertEqual([], xet_chunker:chunk_boundaries(<<>>)),
     ?assertEqual([], xet_chunker_ref:chunk_boundaries(<<>>)).
 
+%% Spec 5.4: constant input never matches the mask, so every cut is the
+%% forced one at MAX_CHUNK_SIZE, plus a short final chunk.
+forced_cut_at_max_test() ->
+    Zeros = <<0:(300000 * 8)>>,
+    ?assertEqual([131072, 262144, 300000], xet_chunker:chunk_boundaries(Zeros)),
+    ?assertEqual([131072, 262144, 300000], xet_chunker_ref:chunk_boundaries(Zeros)).
+
 %% Inputs below MIN_CHUNK_SIZE are one final chunk.
 small_input_test() ->
     ?assertEqual([3], xet_chunker:chunk_boundaries(<<"abc">>)),

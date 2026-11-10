@@ -122,7 +122,7 @@ Gaps found by a conformance audit against draft-denis-xet-05.
 - [x] T12.7 TLS-only tokens and scheme-correct signed URLs
 - [x] T12.8 Client fetch retry and V2 multi-entry parsing
 - [x] T12.9 S3 presigned cache headers + data-route auth match
-- [ ] T12.10 Negative decode tests for xorb and shard rejects
+- [x] T12.10 Negative decode tests for xorb and shard rejects
 
 ## 0.2.0 acceptance
 
@@ -156,3 +156,8 @@ Each end-state item maps to a named test or smoke step (T12.1 sweep).
 - Adaptive concurrency, HF Hub token exchange, barrel_docdb metadata backend
 - Multi-arch Docker images, FreeBSD CI builds and pkg(8) packages
 - CLI admin subcommands
+- Per-repository access control (spec 14.4); the server is single-tenant
+- Client chunk cache keyed by chunk hash with LRU eviction (13.2), merged
+  overlapping fetch ranges (12.3)
+- Detecting a short range reconstruction (needs the file size in the
+  response); accepting uppercase hex in hash strings

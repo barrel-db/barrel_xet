@@ -103,6 +103,43 @@ decode_limits_test() ->
         {error, empty_xorb}, xet_xorb:decode(<<Before/binary, 0:32/little, After/binary>>)
     ).
 
+%% Spec 7.3.2 size rules on hand-built chunk headers.
+chunk_header_rejects_test() ->
+    Hdr = fun(Comp, Type, USize) -> <<0, Comp:24/little, Type, USize:24/little>> end,
+    Bad = [
+        %% uncompressed_size 0, and above 128 KiB
+        <<(Hdr(1, 0, 0))/binary, 7>>,
+        <<(Hdr(1, 0, 131073))/binary, 7>>,
+        %% compressed_size 0, above 128 KiB, and above the remaining bytes
+        Hdr(0, 0, 1),
+        <<(Hdr(131073, 0, 131073))/binary, 0:(131073 * 8)>>,
+        <<(Hdr(5, 0, 5))/binary, 1, 2>>,
+        %% type 0 (none) with compressed =/= uncompressed
+        <<(Hdr(2, 0, 3))/binary, 1, 2>>
+    ],
+    [?assertEqual({error, bad_chunk_size}, xet_xorb:parse_chunk_stream(B)) || B <- Bad].
+
+%% Spec 7.5: unknown idents or versions and inconsistent num_chunks are
+%% rejected.
+footer_rejects_test() ->
+    {ok, Enc} = xet_xorb:encode(chunks3(), #{nonce => ?NONCE0}),
+    Bin = maps:get(bin, Enc),
+    Size = byte_size(Bin),
+    <<_:(Size - 4)/binary, InfoLen:32/little>> = Bin,
+    F = Size - 4 - InfoLen,
+    %% 3 chunks: hash section at F+40, boundary section at F+40+12+96.
+    B = F + 40 + 12 + 3 * 32,
+    ?assertEqual({error, bad_footer}, xet_xorb:decode(flip(Bin, F))),
+    ?assertEqual({error, bad_footer_version}, xet_xorb:decode(patch(Bin, F + 7, 2))),
+    %% Hash section: ident, version (MUST be 0), num_chunks.
+    ?assertEqual({error, bad_footer}, xet_xorb:decode(flip(Bin, F + 40))),
+    ?assertEqual({error, bad_footer}, xet_xorb:decode(patch(Bin, F + 47, 1))),
+    ?assertEqual({error, bad_footer}, xet_xorb:decode(patch(Bin, F + 48, 4))),
+    %% Boundary section: ident, version (MUST be 1), num_chunks.
+    ?assertEqual({error, bad_footer}, xet_xorb:decode(flip(Bin, B))),
+    ?assertEqual({error, bad_footer}, xet_xorb:decode(patch(Bin, B + 7, 0))),
+    ?assertEqual({error, bad_footer}, xet_xorb:decode(patch(Bin, B + 8, 4))).
+
 %% A footer whose boundary points past the chunk data is refused, not
 %% sliced into footer bytes.
 extract_range_untrusted_footer_test() ->

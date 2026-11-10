@@ -106,6 +106,57 @@ tamper_test() ->
     %% Break the cumulative chunk byte_range_start rule.
     {error, _} = xet_shard:decode(flip(Bin, byte_size(Bin) - 60)).
 
+%% Spec 9.4/9.5 body rejects on the upload form of sample(). Offsets:
+%% header 48; file 1 header at 48 (flags 80, reserved 88), 2 terms at
+%% 96 (term CAS flags 128), 2 verification entries at 192 (reserved 224),
+%% metadata ext at 288 (reserved 320); file 2 at 336, bookend at 432;
+%% CAS header at 480 (flags 512), first chunk at 528 (flags 568,
+%% reserved 572).
+body_rejects_test() ->
+    Bin = xet_shard:encode_upload(sample()),
+    Cases = [
+        {80, bad_file_flags},
+        {88, bad_file_block},
+        {128, bad_term_entry},
+        {224, bad_verification_entry},
+        {320, bad_metadata_ext},
+        {512, bad_cas_block},
+        {568, bad_chunk_entry},
+        {572, bad_chunk_entry}
+    ],
+    lists:foreach(
+        fun({Pos, Reason}) ->
+            %% Each target is a zero flag or reserved byte.
+            ?assertEqual({Pos, 0}, {Pos, binary:at(Bin, Pos)}),
+            ?assertEqual({Pos, {error, Reason}}, {Pos, xet_shard:decode(patch(Bin, Pos, 1))})
+        end,
+        Cases
+    ),
+    %% Bookend: 32 x 0xFF then 16 x 0x00.
+    ?assertEqual(16#FF, binary:at(Bin, 432)),
+    ?assertMatch({error, _}, xet_shard:decode(patch(Bin, 432, 0))),
+    ?assertMatch({error, _}, xet_shard:decode(patch(Bin, 432 + 40, 1))).
+
+%% Spec 9.6 footer rejects on a stored shard.
+footer_rejects_test() ->
+    H = fun(N) -> <<N, 0:248>> end,
+    #{files := [F1, F2], cas := Cas} = sample(),
+    Shard = #{files => [F1#{file_hash := H(2)}, F2#{file_hash := H(1)}], cas => Cas},
+    Bin = xet_shard:encode_stored(Shard, #{
+        chunk_hash_key => xet_hash:zero_hash(), created_at => 1, key_expiry => 0
+    }),
+    ?assertMatch({ok, _}, xet_shard:decode(Bin)),
+    FS = byte_size(Bin) - 200,
+    ?assertEqual({error, bad_footer_version}, xet_shard:decode(patch(Bin, FS, 2))),
+    %% file_info_offset must be 48; cas_info_offset must follow it.
+    ?assertEqual({error, bad_footer_offsets}, xet_shard:decode(patch(Bin, FS + 8, 49))),
+    ?assertEqual({error, bad_footer_offsets}, xet_shard:decode(patch(Bin, FS + 64, 99))),
+    %% Swap the two file lookup entries: no longer sorted.
+    <<_:(FS + 24)/binary, Lookup:64/little, _/binary>> = Bin,
+    <<Before:Lookup/binary, E1:12/binary, E2:12/binary, After/binary>> = Bin,
+    Unsorted = <<Before/binary, E2/binary, E1/binary, After/binary>>,
+    ?assertEqual({error, bad_lookup_tables}, xet_shard:decode(Unsorted)).
+
 %% Golden shards from the reference dataset (all vendored, no skip).
 reference_upload_form_test() ->
     {ok, Bin} = file:read_file(fixture(".shard.verification-no-footer")),
@@ -163,3 +214,7 @@ fixture(Suffix) ->
 flip(Bin, Pos) ->
     <<Before:Pos/binary, Byte, After/binary>> = Bin,
     <<Before/binary, (Byte bxor 16#FF), After/binary>>.
+
+patch(Bin, Pos, Value) ->
+    <<Before:Pos/binary, _, After/binary>> = Bin,
+    <<Before/binary, Value, After/binary>>.
