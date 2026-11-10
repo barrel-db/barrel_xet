@@ -135,7 +135,7 @@ health(_Req) ->
 %% bearer auth.
 -spec stack(map()) -> [term()].
 stack(Config) ->
-    [{livery_request_id, #{}}] ++
+    [{xet_mw_empty_body, #{}}, {livery_request_id, #{}}] ++
         security_headers(Config) ++
         [{xet_mw_log_meta, #{}}] ++
         observability(Config) ++
