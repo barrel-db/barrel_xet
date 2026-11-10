@@ -9,6 +9,8 @@
 
 -export([open/1, close/1, put/4, get_range/5, size/3, exists/3, delete/3, presign/4]).
 
+-define(OCTET_STREAM, <<"application/octet-stream">>).
+
 open(#{bucket := Bucket} = Opts) ->
     case client(Opts) of
         {ok, Client} -> {ok, #{client => Client, bucket => Bucket}};
@@ -34,22 +36,34 @@ put(#{client := Client, bucket := Bucket} = State, Ns, Hash, Body) ->
             true ->
                 ok;
             false ->
-                case
-                    livery_s3:put_object(Client, Bucket, Key, Body, #{
-                        content_type => <<"application/octet-stream">>,
-                        %% Xorbs are immutable by hash (spec 13.1).
-                        cache_control => <<"public, immutable, max-age=31536000">>
-                    })
-                of
-                    {ok, _} ->
-                        ok;
-                    {error, _} = Error ->
-                        logger:warning("s3 put_object failed for ~ts (retries exhausted): ~p", [
-                            Key, Error
-                        ]),
-                        Error
-                end
+                put_new(Client, Bucket, Key, full_body(Body))
         end
+    end.
+
+put_new(Client, Bucket, Key, Body) ->
+    %% No stored Cache-Control: the presigned URL sets one per URL (see
+    %% presign/4). Some backends (Garage) drop that override on ranged
+    %% GETs and would serve a stored max-age that outlives the URL instead.
+    case livery_s3:put_object(Client, Bucket, Key, Body, #{content_type => ?OCTET_STREAM}) of
+        {ok, _} ->
+            ok;
+        {error, _} = Error ->
+            logger:warning("s3 put_object failed for ~ts (retries exhausted): ~p", [Key, Error]),
+            Error
+    end.
+
+%% Strict S3 implementations (AWS, RustFS) reject a PUT without a
+%% Content-Length, which a streamed body cannot carry. A xorb is bounded
+%% (max_xorb_bytes), so collect the stream and send it whole.
+full_body({stream, Producer}) ->
+    collect(Producer, []);
+full_body(IoData) ->
+    IoData.
+
+collect(Producer, Acc) ->
+    case Producer() of
+        eof -> iolist_to_binary(lists:reverse(Acc));
+        {ok, Part, Next} -> collect(Next, [Part | Acc])
     end.
 
 get_range(#{client := Client, bucket := Bucket}, Ns, Hash, Start, Len) ->
