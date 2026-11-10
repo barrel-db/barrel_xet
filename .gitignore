@@ -14,3 +14,4 @@ c_src/*.o
 .DS_Store
 test/xetcore/target/
 __pycache__/
+.claude/settings.local.json

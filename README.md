@@ -62,6 +62,7 @@ file. See [Deploy the server](docs/deploy-server.md) for configuration.
 - [High availability design (0.3.0)](docs/ha-design.md)
 - [Task checklist](docs/features.md)
 - [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md) and [security policy](SECURITY.md)
 
 ## Spec
 
