@@ -110,7 +110,7 @@ standalone CAS server.
 
 - [x] T12.1 Load/soak re-run + acceptance sweep
 - [x] T12.2 HA design document (0.3.0 blueprint)
-- [ ] T12.3 v0.2.0 tag + release (after Phase 12b)
+- [x] T12.3 v0.2.0 tag + release (after Phase 12b)
 
 ## Phase 12b: Spec conformance (0.2.0)
 
