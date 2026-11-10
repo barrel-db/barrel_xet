@@ -171,7 +171,7 @@ https_signed_urls_run(Dir) ->
                 integer_to_list(maps:get(h2, xet_server:ports(xet_urls_server))),
         ?assertMatch(
             <<"https://", _/binary>>,
-            first_fetch_url(TlsBase ++ Path, [{ssl_options, [{insecure, true}]}])
+            first_fetch_url(TlsBase ++ Path, [insecure])
         ),
         ?assertMatch(
             <<"http://", _/binary>>, first_fetch_url(base_url(xet_urls_server) ++ Path, [])
