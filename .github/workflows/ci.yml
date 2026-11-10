@@ -127,7 +127,7 @@ jobs:
           # The stock erlang pkg lags behind; the versioned runtime package
           # tracks a supported OTP.
           prepare: |
-            pkg install -y erlang-runtime28 cmake gmake lz4 snappy zstd git
+            pkg install -y erlang-runtime28 cmake gmake liblz4 snappy zstd git
           run: |
             ERL_BIN="$(dirname "$(pkg info -l erlang-runtime28 | tr -d '[:blank:]' | grep -E '/bin/erl$' | grep -v 'erts-' | head -1)")"
             export PATH="$ERL_BIN:/usr/local/bin:$PATH"
