@@ -22,7 +22,7 @@
     {licenses, ["Apache-2.0"]},
     {links, [
         {"Spec", "https://datatracker.ietf.org/doc/draft-denis-xet/"},
-        {"GitHub", "https://github.com/benoitc/barrel_xet"}
+        {"GitHub", "https://github.com/barrel-db/barrel_xet"}
     ]},
     {build_tools, ["rebar3"]}
 ]}.

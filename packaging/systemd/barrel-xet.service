@@ -1,6 +1,6 @@
 [Unit]
 Description=barrel_xet CAS server
-Documentation=https://github.com/barrel-platform/barrel_xet
+Documentation=https://github.com/barrel-db/barrel_xet
 After=network-online.target
 Wants=network-online.target
 

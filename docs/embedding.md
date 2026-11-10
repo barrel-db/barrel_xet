@@ -11,7 +11,7 @@ barrel_xet is a rebar3 application. Add it to your `rebar.config`:
 
 ```erlang
 {deps, [
-    {barrel_xet, {git, "https://github.com/benoitc/barrel_xet.git", {tag, "0.1.0"}}}
+    {barrel_xet, {git, "https://github.com/barrel-db/barrel_xet.git", {tag, "v0.1.0"}}}
 ]}.
 ```
 

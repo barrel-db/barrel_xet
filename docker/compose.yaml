@@ -2,7 +2,7 @@
 # Build locally by uncommenting `build`, or use the published image.
 services:
   barrel_xet:
-    image: ghcr.io/barrel-platform/barrel_xet:latest
+    image: ghcr.io/barrel-db/barrel_xet:latest
     # build: ..
     ports:
       - "8080:8080"
