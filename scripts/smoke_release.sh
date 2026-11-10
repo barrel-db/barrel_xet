@@ -15,8 +15,16 @@ DATA=$(mktemp -d)
 DATA2=$(mktemp -d)
 TOKEN=smoke-write-token
 REL=_build/prod/rel/barrel_xet
+# Bound every daemon start: a node that never answers fails the smoke
+# with its logs instead of hanging until the CI job is cancelled.
+START_TIMEOUT=${SMOKE_START_TIMEOUT:-120}
 cleanup() {
-    "$REL/bin/barrel_xet" stop >/dev/null 2>&1 || true
+    status=$?
+    if [ "$status" -ne 0 ]; then
+        echo "smoke failed; node logs:" >&2
+        tail -n 50 "$REL"/log/erlang.log.* 2>/dev/null >&2 || true
+    fi
+    HOME="$DATA" "$REL/bin/barrel_xet" stop >/dev/null 2>&1 || true
     HOME="$DATA2" BARREL_XET_NODE=smoke_env@127.0.0.1 \
         "$REL/bin/barrel_xet" stop >/dev/null 2>&1 || true
     rm -rf "$DATA" "$DATA2"
@@ -39,8 +47,16 @@ cat >"$SYS" <<EOF
 }}]}].
 EOF
 
+# `daemon` waits for the node over Erlang RPC, which needs a cookie; seed
+# one in a throwaway HOME rather than relying on ~/.erlang.cookie (a fresh
+# CI runner has none, and daemon then waits forever).
+head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$DATA/.erlang.cookie"
+chmod 400 "$DATA/.erlang.cookie"
+main_node() {
+    HOME="$DATA" RELX_CONFIG_PATH="$SYS" "$REL/bin/barrel_xet" "$@"
+}
 echo "starting node..."
-RELX_CONFIG_PATH="$SYS" "$REL/bin/barrel_xet" daemon
+HOME="$DATA" RELX_CONFIG_PATH="$SYS" timeout "$START_TIMEOUT" "$REL/bin/barrel_xet" daemon
 
 echo "waiting for health..."
 for _ in $(seq 1 30); do
@@ -55,11 +71,11 @@ echo "health ok"
 # expression yields an atom we can grep (a failed match errors instead).
 echo "roundtrip via remote eval..."
 EVAL='Client = xet_client:new(#{endpoint => <<"http://127.0.0.1:'"$PORT"'">>, token => <<"'"$TOKEN"'">>}), Data = binary:copy(<<"barrel_xet release smoke ">>, 20000), {ok, #{file_hash := H}} = xet_client_upload:upload_data(Client, smoke, Data), {ok, Data} = xet_client_download:download_data(Client, H), roundtrip_ok.'
-"$REL/bin/barrel_xet" eval "$EVAL" | grep -q roundtrip_ok
+main_node eval "$EVAL" | grep -q roundtrip_ok
 echo "roundtrip ok"
 
 echo "stopping node..."
-"$REL/bin/barrel_xet" stop
+main_node stop
 
 # Second boot driven purely by BARREL_XET_* environment variables (the
 # sys.config.src / vm.args.src substitution path): no config file is
@@ -82,7 +98,9 @@ env_node() {
         BARREL_XET_TOKENS_FILE="$DATA2/tokens" \
         "$REL/bin/barrel_xet" "$@"
 }
-env_node daemon
+HOME="$DATA2" BARREL_XET_NODE=smoke_env@127.0.0.1 BARREL_XET_DATA_DIR="$DATA2/data" \
+    BARREL_XET_HTTP_PORT="$PORT2" BARREL_XET_TOKENS_FILE="$DATA2/tokens" \
+    timeout "$START_TIMEOUT" "$REL/bin/barrel_xet" daemon
 
 echo "waiting for env node health..."
 for _ in $(seq 1 30); do
