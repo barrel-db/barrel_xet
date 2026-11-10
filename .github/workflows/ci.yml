@@ -134,6 +134,8 @@ jobs:
             erl -noshell -eval 'io:format("OTP ~s~n", [erlang:system_info(otp_release)]), halt().'
             fetch -q https://github.com/erlang/rebar3/releases/download/3.25.0/rebar3 -o rebar3
             chmod +x rebar3
+            # The checkout is owned by the runner user, not the VM's root.
+            git config --global --add safe.directory "$PWD"
             ./rebar3 compile
             ./rebar3 eunit
             ./rebar3 as prod tar
