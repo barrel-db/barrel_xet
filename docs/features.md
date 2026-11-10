@@ -151,7 +151,7 @@ Each end-state item maps to a named test or smoke step (T12.1 sweep).
 - [x] T13.1 Split config validation out of xet_config
 - [x] T13.2 S3 orphan-blob sweep
 - [x] T13.3 Incremental backups (rocksdb BackupEngine)
-- [ ] T13.4 CLI admin subcommands
+- [x] T13.4 CLI admin subcommands
 
 ## Phase 14: Client and protocol (0.3.0)
 

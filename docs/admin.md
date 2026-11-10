@@ -22,6 +22,10 @@ ops-token admin
 
 With the surface disabled, the routes are absent (`404`).
 
+Every endpoint below is also a `xet admin` command; see
+[Command-line usage](cli.md#admin-commands). From Erlang, use
+`xet_client_admin`.
+
 ## GET /admin/stats
 
 Returns store counts as JSON.
