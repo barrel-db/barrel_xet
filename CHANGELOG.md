@@ -26,7 +26,7 @@
   labels. Update dashboards and alerts. OTLP export keeps the dotted
   names. A metric now appears after its first write instead of as a
   zero.
-- Requires livery 0.12 and rocksdb 3.2.
+- Requires livery 0.12.1 and rocksdb 3.2.
 
 ### Fixed
 
