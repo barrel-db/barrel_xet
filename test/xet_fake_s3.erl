@@ -2,10 +2,11 @@
 %% Copyright 2026 Benoit Chesneau
 %% Minimal in-memory S3 lookalike served by livery, for offline testing
 %% of xet_store_s3 through real HTTP: PUT/GET(range)/HEAD/DELETE on
-%% path-style /bucket/key URLs. Signatures are accepted unverified.
+%% path-style /bucket/key URLs, and ListObjectsV2 on /bucket?list-type=2.
+%% Signatures are accepted unverified.
 -module(xet_fake_s3).
 
--export([start/0, stop/1, fail_next/3, fail_next_ranged/3, put_object/3]).
+-export([start/0, stop/1, fail_next/3, fail_next_ranged/3, put_object/3, set_mtime/3]).
 
 %% The h1 listener links to its starter, so a long-lived holder process
 %% owns it (and the ets table) across CT callback processes.
@@ -33,14 +34,23 @@ fail_next_ranged(#{table := Table}, N, Status) ->
 
 %% Seed an object without going through HTTP.
 put_object(#{table := Table}, Key, Body) ->
-    true = ets:insert(Table, {Key, Body}),
+    store(Table, Key, Body),
     ok.
+
+%% Set an object's LastModified (posix seconds), for age-gated sweeps.
+set_mtime(#{table := Table}, Key, Mtime) ->
+    true = ets:insert(Table, {{mtime, Key}, Mtime}),
+    ok.
+
+store(Table, Key, Body) ->
+    true = ets:insert(Table, [{Key, Body}, {{mtime, Key}, erlang:system_time(second)}]).
 
 holder(Caller, Ref) ->
     Table = ets:new(xet_fake_s3, [public, set]),
     {ok, Listener} = livery:start_listener(livery_h1, #{
         port => 0,
-        stack => [],
+        %% Same empty-body framing as the server (see xet_mw_empty_body).
+        stack => [{xet_mw_empty_body, #{}}],
         handler => fun(Req) -> handle_req(Table, Req) end
     }),
     Caller ! {Ref, h1:server_port(Listener), Table},
@@ -62,7 +72,79 @@ handle_req(Table, Req) ->
     Method = livery_req:method(Req),
     Path = livery_req:path(Req),
     Key = binary:part(Path, 1, byte_size(Path) - 1),
-    dispatch(Method, Key, Table, Req).
+    case {Method, binary:match(Key, <<"/">>), query(Req)} of
+        {<<"GET">>, nomatch, #{<<"list-type">> := <<"2">>} = Query} -> list(Table, Key, Query);
+        _ -> dispatch(Method, Key, Table, Req)
+    end.
+
+query(Req) ->
+    case livery_req:query(Req) of
+        Q when is_binary(Q), Q =/= <<>> -> maps:from_list(uri_string:dissect_query(Q));
+        _ -> #{}
+    end.
+
+%% ListObjectsV2: keys of the bucket under prefix, sorted, max-keys per
+%% page; the continuation token is the last key of the previous page.
+list(Table, Bucket, Query) ->
+    Base = <<Bucket/binary, "/">>,
+    Prefix = <<Base/binary, (maps:get(<<"prefix">>, Query, <<>>))/binary>>,
+    After = maps:get(<<"continuation-token">>, Query, <<>>),
+    Max = binary_to_integer(maps:get(<<"max-keys">>, Query, <<"1000">>)),
+    Keys = lists:sort([
+        K
+     || {K, _} <- ets:tab2list(Table),
+        is_binary(K),
+        binary:longest_common_prefix([K, Prefix]) =:= byte_size(Prefix),
+        K > <<Base/binary, After/binary>>
+    ]),
+    {Page, Rest} = lists:split(min(Max, length(Keys)), Keys),
+    livery_resp:new(
+        200, [{<<"content-type">>, <<"application/xml">>}], {full, listing(Table, Base, Page, Rest)}
+    ).
+
+listing(Table, Base, Page, Rest) ->
+    Strip = fun(K) -> binary:part(K, byte_size(Base), byte_size(K) - byte_size(Base)) end,
+    Contents = [
+        [
+            <<"<Contents><Key>">>,
+            Strip(K),
+            <<"</Key><Size>">>,
+            integer_to_binary(object_size(Table, K)),
+            <<"</Size><LastModified>">>,
+            last_modified(Table, K),
+            <<"</LastModified></Contents>">>
+        ]
+     || K <- Page
+    ],
+    Truncated =
+        case Rest of
+            [] ->
+                <<"<IsTruncated>false</IsTruncated>">>;
+            _ ->
+                [
+                    <<"<IsTruncated>true</IsTruncated><NextContinuationToken>">>,
+                    Strip(lists:last(Page)),
+                    <<"</NextContinuationToken>">>
+                ]
+        end,
+    iolist_to_binary([
+        <<"<?xml version=\"1.0\"?><ListBucketResult>">>,
+        Truncated,
+        Contents,
+        <<"</ListBucketResult>">>
+    ]).
+
+object_size(Table, Key) ->
+    [{_, Body}] = ets:lookup(Table, Key),
+    byte_size(Body).
+
+last_modified(Table, Key) ->
+    Mtime =
+        case ets:lookup(Table, {mtime, Key}) of
+            [{_, T}] -> T;
+            [] -> erlang:system_time(second)
+        end,
+    list_to_binary(calendar:system_time_to_rfc3339(Mtime, [{unit, second}, {offset, "Z"}])).
 
 dispatch(<<"PUT">>, Key, Table, Req) ->
     %% Drain the body either way so the connection stays clean.
@@ -71,7 +153,7 @@ dispatch(<<"PUT">>, Key, Table, Req) ->
         {fail, Status} ->
             livery_resp:new(Status, [], {full, <<>>});
         ok ->
-            ets:insert(Table, {Key, Body}),
+            store(Table, Key, Body),
             livery_resp:new(200, [{<<"etag">>, <<"\"fake\"">>}], {full, <<>>})
     end;
 dispatch(<<"HEAD">>, Key, Table, _Req) ->
@@ -94,6 +176,7 @@ dispatch(<<"GET">>, Key, Table, Req) ->
     end;
 dispatch(<<"DELETE">>, Key, Table, _Req) ->
     ets:delete(Table, Key),
+    ets:delete(Table, {mtime, Key}),
     livery_resp:new(204, [], {full, <<>>});
 dispatch(_, _, _, _) ->
     livery_resp:new(405, [], {full, <<>>}).

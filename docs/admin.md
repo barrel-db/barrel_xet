@@ -92,11 +92,15 @@ Do not run the first collection within one grace window of upgrading
 from a release that did not stamp xorb creation times: those records
 default to age zero and would be eligible immediately if unreferenced.
 
-Collection also reclaims orphaned blobs on the filesystem backend: blob
-files with no metadata and an mtime older than the grace window (left by
-a put that crashed before registration, or a crash between the metadata
-and blob deletes). The S3 backend does not sweep orphans in this
-release; its object listing is a follow-up.
+Collection also reclaims orphaned blobs: blobs with no metadata that are
+older than the grace window (left by a put that crashed before
+registration, or a crash between the metadata and blob deletes). On the
+filesystem the age is the file mtime; on S3 it is the object's
+`LastModified`, and the bucket is listed one page at a time under each
+configured namespace (`<ns>/`), so other objects in a shared bucket are
+never touched. A dry run reports `orphan_blobs` and `orphan_bytes`
+without deleting. Real runs also count them in the
+`xet.gc.orphan_blobs` and `xet.gc.orphan_bytes` metrics.
 
 ## Scrub (verify-at-rest)
 

@@ -3,12 +3,14 @@
 %% Garbage collection: unreferenced xorbs older than the grace window are
 %% swept from metadata and blob storage; referenced or young xorbs are
 %% kept; dry runs report without deleting; and a registration racing a
-%% sweep never leaves a file pointing at a deleted xorb.
+%% sweep never leaves a file pointing at a deleted xorb. Blobs with no
+%% metadata are swept as orphans on the filesystem and on S3 (the fake).
 -module(xet_gc_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
 
--export([all/0, init_per_testcase/2, end_per_testcase/2]).
+-export([all/0, groups/0, init_per_group/2, end_per_group/2]).
+-export([init_per_testcase/2, end_per_testcase/2]).
 -export([
     collects_unreferenced_aged/1,
     referenced_survives/1,
@@ -18,35 +20,79 @@
     registration_race_keeps_files_consistent/1,
     orphan_blob_swept/1,
     young_orphan_kept/1,
-    registered_blob_not_orphan/1
+    registered_blob_not_orphan/1,
+    orphan_dry_run_keeps_blob/1
 ]).
 
 -define(GRACE, 100).
 
 all() ->
-    [
+    [{group, fs}, {group, s3}].
+
+groups() ->
+    Orphans = [
         collects_unreferenced_aged,
-        referenced_survives,
-        grace_protects_young,
-        delete_file_then_gc,
-        dry_run_reports_without_deleting,
-        registration_race_keeps_files_consistent,
         orphan_blob_swept,
         young_orphan_kept,
-        registered_blob_not_orphan
+        registered_blob_not_orphan,
+        orphan_dry_run_keeps_blob
+    ],
+    [
+        {fs, [],
+            Orphans ++
+                [
+                    referenced_survives,
+                    grace_protects_young,
+                    delete_file_then_gc,
+                    dry_run_reports_without_deleting,
+                    registration_race_keeps_files_consistent
+                ]},
+        {s3, [], Orphans}
     ].
+
+init_per_group(fs, Config) ->
+    [{backend, fs} | Config];
+init_per_group(s3, Config) ->
+    {ok, _} = application:ensure_all_started(livery),
+    {ok, Fake} = xet_fake_s3:start(),
+    [{backend, s3}, {fake, Fake} | Config].
+
+end_per_group(s3, Config) ->
+    xet_fake_s3:stop(proplists:get_value(fake, Config));
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_testcase(Case, Config) ->
     {ok, _} = application:ensure_all_started([barrel_xet]),
-    Name = list_to_atom("xet_gc_" ++ atom_to_list(Case)),
-    DataDir = filename:join(proplists:get_value(priv_dir, Config), atom_to_list(Case)),
-    {ok, _} = xet_server:start(#{
-        name => Name,
-        data_dir => DataDir,
-        gc => #{grace_seconds => ?GRACE, interval => false},
-        auth => {xet_auth_static, #{tokens => #{}}}
-    }),
+    Backend = proplists:get_value(backend, Config),
+    Name = list_to_atom("xet_gc_" ++ atom_to_list(Backend) ++ "_" ++ atom_to_list(Case)),
+    DataDir = filename:join(proplists:get_value(priv_dir, Config), atom_to_list(Name)),
+    {ok, _} = xet_server:start(
+        blob_config(Config, Name, #{
+            name => Name,
+            data_dir => DataDir,
+            gc => #{grace_seconds => ?GRACE, interval => false},
+            auth => {xet_auth_static, #{tokens => #{}}}
+        })
+    ),
     [{name, Name} | Config].
+
+%% Each S3 case gets its own bucket on the shared fake.
+blob_config(Config, Name, ServerConfig) ->
+    case proplists:get_value(fake, Config) of
+        undefined ->
+            ServerConfig;
+        #{port := Port} ->
+            ServerConfig#{blob => {s3, #{bucket => atom_to_binary(Name), s3 => s3_client(Port)}}}
+    end.
+
+s3_client(Port) ->
+    #{
+        endpoint => list_to_binary("http://127.0.0.1:" ++ integer_to_list(Port)),
+        region => <<"garage">>,
+        access_key_id => <<"test">>,
+        secret_access_key => <<"testsecret">>
+    }.
 
 end_per_testcase(_Case, Config) ->
     ok = xet_server:stop(proplists:get_value(name, Config)).
@@ -98,13 +144,22 @@ put_orphan(Config, N, AgeSeconds) ->
     #{blob := Blob} = env(Config),
     Hash = <<N:256>>,
     ok = xet_blob_store:put(Blob, <<"default">>, Hash, binary:copy(<<"o">>, 100)),
-    {ok, Path} = xet_blob_store:local_path(Blob, <<"default">>, Hash),
-    ok = age_blob(Path, AgeSeconds),
+    ok = age_blob(Config, Hash, AgeSeconds),
     Hash.
 
-age_blob(Path, AgeSeconds) ->
-    Seconds = calendar:datetime_to_gregorian_seconds(calendar:local_time()) - AgeSeconds,
-    ok = file:change_time(Path, calendar:gregorian_seconds_to_datetime(Seconds)).
+%% Backdate a blob: the file mtime on the filesystem, LastModified on S3.
+age_blob(Config, Hash, AgeSeconds) ->
+    case proplists:get_value(fake, Config) of
+        undefined ->
+            #{blob := Blob} = env(Config),
+            {ok, Path} = xet_blob_store:local_path(Blob, <<"default">>, Hash),
+            Seconds = calendar:datetime_to_gregorian_seconds(calendar:local_time()) - AgeSeconds,
+            ok = file:change_time(Path, calendar:gregorian_seconds_to_datetime(Seconds));
+        Fake ->
+            Bucket = atom_to_binary(proplists:get_value(name, Config)),
+            Key = <<Bucket/binary, "/default/", (xet_hash:to_string(Hash))/binary>>,
+            xet_fake_s3:set_mtime(Fake, Key, erlang:system_time(second) - AgeSeconds)
+    end.
 
 blob_exists(Config, Hash) ->
     #{blob := Blob} = env(Config),
@@ -189,11 +244,17 @@ young_orphan_kept(Config) ->
 registered_blob_not_orphan(Config) ->
     Hash = put_xorb(Config, 1, old()),
     ok = register_ref(Config, 500, Hash),
-    #{blob := Blob} = env(Config),
-    {ok, Path} = xet_blob_store:local_path(Blob, <<"default">>, Hash),
-    ok = age_blob(Path, 10 * ?GRACE),
+    ok = age_blob(Config, Hash, 10 * ?GRACE),
     Result = run_gc(Config, #{}),
     ?assertEqual(0, maps:get(orphan_blobs, Result)),
+    ?assert(blob_exists(Config, Hash)).
+
+%% A dry run counts an aged orphan but leaves it in place.
+orphan_dry_run_keeps_blob(Config) ->
+    Hash = put_orphan(Config, 1, 10 * ?GRACE),
+    Result = run_gc(Config, #{dry_run => true}),
+    ?assertEqual(1, maps:get(orphan_blobs, Result)),
+    ?assertEqual(100, maps:get(orphan_bytes, Result)),
     ?assert(blob_exists(Config, Hash)).
 
 %% A registration that references a collectable xorb concurrently with a

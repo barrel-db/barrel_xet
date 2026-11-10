@@ -8,13 +8,21 @@
 -behaviour(xet_blob_store).
 
 -export([open/1, close/1, put/4, get_range/5, size/3, exists/3, delete/3, presign/4]).
+-export([fold_blobs/4]).
 
 -define(OCTET_STREAM, <<"application/octet-stream">>).
+-define(LIST_PAGE, 1000).
 
 open(#{bucket := Bucket} = Opts) ->
     case client(Opts) of
-        {ok, Client} -> {ok, #{client => Client, bucket => Bucket}};
-        {error, _} = Error -> Error
+        {ok, Client} ->
+            {ok, #{
+                client => Client,
+                bucket => Bucket,
+                list_page => maps:get(list_page, Opts, ?LIST_PAGE)
+            }};
+        {error, _} = Error ->
+            Error
     end.
 
 client(#{client := Client}) ->
@@ -125,3 +133,64 @@ normalize(not_found) -> not_found;
 normalize({s3, <<"NoSuchKey">>, _, _}) -> not_found;
 normalize({s3, <<"InvalidRange">>, _, _}) -> bad_range;
 normalize(Other) -> Other.
+
+%% Fold Fun({Ns, Hash, MtimePosix}, Acc) over the blobs of the given
+%% namespaces, one ListObjectsV2 page at a time (prefix <ns>/), so a
+%% large bucket is never listed into memory at once. Keys that are not
+%% <ns>/<hash> are skipped, which keeps a shared bucket safe. An object
+%% whose LastModified does not parse is reported as just written, so the
+%% orphan sweep's age gate never treats it as old.
+fold_blobs(State, Namespaces, Fun, Acc0) ->
+    lists:foldl(
+        fun
+            (Ns, {ok, Acc}) -> fold_pages(State, Ns, undefined, Fun, Acc);
+            (_Ns, Error) -> Error
+        end,
+        {ok, Acc0},
+        [Ns || Ns <- Namespaces, xet_blob_store:valid_namespace(Ns)]
+    ).
+
+fold_pages(
+    #{client := Client, bucket := Bucket, list_page := PageSize} = State, Ns, Token, Fun, Acc0
+) ->
+    Opts = page_opts(<<Ns/binary, "/">>, PageSize, Token),
+    case livery_s3:list_objects(Client, Bucket, Opts) of
+        {ok, #{objects := Objects} = Page} ->
+            Acc = lists:foldl(fun(Object, A) -> fold_object(Ns, Object, Fun, A) end, Acc0, Objects),
+            next_page(State, Ns, Page, Fun, Acc);
+        {error, Reason} ->
+            {error, normalize(Reason)}
+    end.
+
+page_opts(Prefix, PageSize, undefined) ->
+    #{prefix => Prefix, max_keys => PageSize};
+page_opts(Prefix, PageSize, Token) ->
+    #{prefix => Prefix, max_keys => PageSize, continuation_token => Token}.
+
+next_page(State, Ns, #{is_truncated := true, next_continuation_token := Token}, Fun, Acc) when
+    is_binary(Token)
+->
+    fold_pages(State, Ns, Token, Fun, Acc);
+next_page(_State, _Ns, _Page, _Fun, Acc) ->
+    {ok, Acc}.
+
+fold_object(Ns, #{key := Key} = Object, Fun, Acc) ->
+    Prefix = <<Ns/binary, "/">>,
+    case Key of
+        <<Prefix:(byte_size(Prefix))/binary, Hex/binary>> ->
+            case xet_hash:is_hash_string(Hex) of
+                true -> Fun({Ns, xet_hash:from_string(Hex), mtime(Object)}, Acc);
+                false -> Acc
+            end;
+        _ ->
+            Acc
+    end.
+
+mtime(#{last_modified := LastModified}) when is_binary(LastModified) ->
+    try
+        calendar:rfc3339_to_system_time(binary_to_list(LastModified), [{unit, second}])
+    catch
+        _:_ -> erlang:system_time(second)
+    end;
+mtime(_Object) ->
+    erlang:system_time(second).
