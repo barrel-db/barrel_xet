@@ -151,10 +151,14 @@ before it: the test must fail there.
 
 | Job | What it proves |
 |---|---|
-| format | `rebar3 fmt --check` |
-| xref, lint, dialyzer | Cross references, Elvis rules (500-line modules, 30-line functions), types |
-| test (eunit + proper + ct) | Unit, property and Common Test suites, with the Python reference client and hf_xet installed so the cross-implementation cases run |
-| release cold-start smoke | `make smoke`: the release builds, boots, serves an upload and download, and stops |
+| erlfmt, Elvis lint, XRef, Dialyzer | Formatting, Elvis rules (500-line modules, 30-line functions), cross references, types |
+| Unit Tests (OTP 27, 28, 29; arm64) | `rebar3 eunit` and the PropEr properties on every supported OTP, and on arm64 |
+| macOS, FreeBSD | The NIF and rocksdb build there and the unit tests pass; FreeBSD also builds the release tarball |
+| Common Test (all suites) | Every suite, with the large reference files fetched |
+| Interop | The draft's Python reference client and xet-core (hf_xet) both ways, global dedup through xet-core, shards read by xet-core's reader, the reference files; fails if any of them is skipped |
+| Live S3 (garage, rustfs) | The S3 suite and a server roundtrip on both backends; fails if skipped |
+| Release cold-start smoke | `make smoke`: the release builds, boots, serves an upload and download, and stops |
+| Image (amd64, arm64) | The Docker image builds natively on both architectures, boots, answers `/healthz` and `/readyz`, and reports the source version |
 
 The release workflow (on a `v*` tag) builds the tarball and the GHCR image
 and smoke-tests both before publishing.

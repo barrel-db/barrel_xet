@@ -6,9 +6,19 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
+  # ------------------------------------------------------------------
+  # Static checks
+  # ------------------------------------------------------------------
   format:
-    name: format
+    name: erlfmt
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -18,61 +28,28 @@ jobs:
           rebar3-version: '3.25.0'
       - run: make fmt-check
 
-  xref:
-    name: xref
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: '29'
-          rebar3-version: '3.25.0'
-      - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
-      - uses: actions/cache@v5
-        with:
-          path: |
-            _build
-            ~/.cache/rebar3
-          key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
-      - run: make xref
-
   lint:
-    name: lint
+    name: Elvis lint
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: '29'
-          rebar3-version: '3.25.0'
-      - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
-      - uses: actions/cache@v5
-        with:
-          path: |
-            _build
-            ~/.cache/rebar3
-          key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
+      - uses: ./.github/actions/setup
       - run: make lint
 
-  dialyzer:
-    name: dialyzer
+  xref:
+    name: XRef
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: '29'
-          rebar3-version: '3.25.0'
-      - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
-      - uses: actions/cache@v5
-        with:
-          path: |
-            _build
-            ~/.cache/rebar3
-          key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
+      - uses: ./.github/actions/setup
+      - run: make xref
+
+  dialyzer:
+    name: Dialyzer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
       - name: Cache Dialyzer PLT
         uses: actions/cache@v5
         with:
@@ -83,58 +60,222 @@ jobs:
           restore-keys: plt-otp-29-
       - run: make dialyzer
 
-  test:
-    name: test (eunit + proper + ct)
-    runs-on: ubuntu-24.04
+  # ------------------------------------------------------------------
+  # Unit and property tests across OTP versions and architectures
+  # ------------------------------------------------------------------
+  unit-tests:
+    name: Unit Tests OTP ${{ matrix.otp }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            otp: '27'
+          - os: ubuntu-24.04
+            otp: '28'
+          - os: ubuntu-24.04
+            otp: '29'
+          - os: ubuntu-24.04-arm
+            otp: '29'
     steps:
       - uses: actions/checkout@v5
-      - uses: erlef/setup-beam@v1
+      - uses: ./.github/actions/setup
         with:
-          otp-version: '29'
-          rebar3-version: '3.25.0'
-      - name: System deps for NIFs (instrument, rocksdb, blake3, lz4)
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
-      # The vendored Python reference client needs 3.14+ (deferred
-      # annotation evaluation); on 3.12/3.13 it raises at import time.
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.14'
-      - name: Python reference client and hf_xet (cross-impl e2e)
-        run: python3 -m pip install --quiet blake3 lz4 requests hf_xet || true
+          otp: ${{ matrix.otp }}
+      - run: rebar3 compile
+      - run: rebar3 eunit
+      - run: rebar3 as test proper
+
+  macos:
+    name: macOS
+    needs: unit-tests
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      # rocksdb's cmake finds snappy, lz4 and zstd under the brew prefix.
+      CMAKE_PREFIX_PATH: /opt/homebrew
+    steps:
+      - uses: actions/checkout@v5
+      # brew ships the current OTP; this job covers the platform (clang,
+      # Mach-O NIF, rocksdb build), not the OTP matrix.
+      - name: Set up Erlang and the NIF libraries
+        run: brew install erlang rebar3 cmake lz4 snappy zstd
       - uses: actions/cache@v5
         with:
           path: |
             _build
             ~/.cache/rebar3
-          key: build-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
-      # Large-fixture and Garage groups self-skip; the python cross-impl
-      # cases run when the deps installed above are present.
-      - run: make test
+          key: build-macos-${{ runner.arch }}-${{ hashFiles('rebar.config', 'rebar.lock') }}
+          restore-keys: build-macos-${{ runner.arch }}-
+      - run: rebar3 compile
+      - run: rebar3 eunit
 
-  release:
-    name: release cold-start smoke
-    needs: [format, xref, lint, dialyzer, test]
+  freebsd:
+    name: FreeBSD
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    # rocksdb builds from source in the VM, with no cache.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and test on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.2"
+          usesh: true
+          # The stock erlang pkg lags behind; the versioned runtime package
+          # tracks a supported OTP.
+          prepare: |
+            pkg install -y erlang-runtime28 cmake gmake lz4 snappy zstd git
+          run: |
+            ERL_BIN="$(dirname "$(pkg info -l erlang-runtime28 | tr -d '[:blank:]' | grep -E '/bin/erl$' | grep -v 'erts-' | head -1)")"
+            export PATH="$ERL_BIN:/usr/local/bin:$PATH"
+            erl -noshell -eval 'io:format("OTP ~s~n", [erlang:system_info(otp_release)]), halt().'
+            fetch -q https://github.com/erlang/rebar3/releases/download/3.25.0/rebar3 -o rebar3
+            chmod +x rebar3
+            ./rebar3 compile
+            ./rebar3 eunit
+            ./rebar3 as prod tar
+
+  # ------------------------------------------------------------------
+  # Common Test, interop and storage
+  # ------------------------------------------------------------------
+  common-test:
+    name: Common Test (all suites)
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - name: Cache large fixtures
+        uses: actions/cache@v5
+        with:
+          path: test/fixtures/large
+          key: fixtures-${{ hashFiles('scripts/fetch_fixtures.sh') }}
+      - run: make fixtures
+      # Suites needing a live S3, python deps or cargo skip here; the
+      # interop and s3-live jobs run them and fail on any skip.
+      - run: rebar3 ct
+
+  interop:
+    name: Interop (Python reference, xet-core, reference files)
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      # The vendored Python reference client needs 3.14+ (deferred
+      # annotation evaluation).
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Python reference client and xet-core (hf_xet)
+        run: python3 -m pip install --quiet blake3 lz4 requests hf_xet
+      - name: Cache the xet-core harness build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            test/xetcore/target
+          key: xetcore-${{ runner.os }}-${{ hashFiles('test/xetcore/Cargo.lock') }}
+      - name: Cache large fixtures
+        uses: actions/cache@v5
+        with:
+          path: test/fixtures/large
+          key: fixtures-${{ hashFiles('scripts/fetch_fixtures.sh') }}
+      - run: make fixtures
+      # A skipped case here means the interop check did not run; fail.
+      - name: Run interop suites
+        run: |
+          rebar3 ct --suite=xet_crossimpl_SUITE,xet_xetcore_SUITE,xet_interop_SUITE 2>&1 | tee ct.log
+          test "${PIPESTATUS[0]}" -eq 0
+          if grep -q 'SKIPPED' ct.log; then echo "interop cases were skipped"; exit 1; fi
+
+  s3-live:
+    name: Live S3 (${{ matrix.backend }})
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [garage, rustfs]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - name: Start ${{ matrix.backend }}
+        run: |
+          bash test/docker/${{ matrix.backend }}-up.sh | tee up.log
+          grep -E '^  export XET_S3_' up.log | sed -e 's/^  export //' >> "$GITHUB_ENV"
+      - name: Run the S3 suite against ${{ matrix.backend }}
+        run: |
+          rebar3 ct --suite=xet_store_s3_SUITE 2>&1 | tee ct.log
+          test "${PIPESTATUS[0]}" -eq 0
+          if grep -q 'SKIPPED' ct.log; then echo "live S3 cases were skipped"; exit 1; fi
+      - name: Stop ${{ matrix.backend }}
+        if: always()
+        run: bash test/docker/${{ matrix.backend }}-down.sh
+
+  # ------------------------------------------------------------------
+  # Release artifacts: tarball and image, built and smoke-tested
+  # ------------------------------------------------------------------
+  release-smoke:
+    name: Release cold-start smoke
+    needs: unit-tests
     runs-on: ubuntu-24.04
     # A cold prod build recompiles rocksdb from source (~15 min); the cache
-    # below makes warm runs a couple of minutes. The timeout turns a genuine
-    # hang into a fast failure instead of a 6-hour "in progress".
+    # makes warm runs a couple of minutes.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - uses: erlef/setup-beam@v1
+      - uses: ./.github/actions/setup
         with:
-          otp-version: '29'
-          rebar3-version: '3.25.0'
-      - name: System deps
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential curl liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
-      # Cache the prod build so `make smoke` reuses the compiled deps
-      # (rocksdb above all). restore-keys keeps a warm _build/prod even when
-      # rebar.config changes but the pinned deps do not.
-      - uses: actions/cache@v5
-        with:
-          path: |
+          cache-name: build-prod
+          cache-path: |
             _build/prod
             ~/.cache/rebar3
-          key: build-prod-otp-29-${{ hashFiles('rebar.config', 'rebar.lock') }}
-          restore-keys: build-prod-otp-29-
       - run: make smoke
+
+  image:
+    name: Image (${{ matrix.arch }})
+    needs: unit-tests
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: barrel_xet:ci
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
+      - name: Smoke test the image
+        run: |
+          docker run -d --name bx -p 8080:8080 barrel_xet:ci
+          for _ in $(seq 1 30); do
+            code=$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz 2>/dev/null) && [ "$code" = 200 ] && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsS http://127.0.0.1:8080/readyz
+          want=$(sed -n 's/.*{vsn, "\(.*\)"}.*/\1/p' src/barrel_xet.app.src)
+          got=$(docker exec bx /opt/barrel_xet/bin/barrel_xet eval 'element(2, application:get_key(barrel_xet, vsn)).' | tr -d '"')
+          echo "image vsn $got, expected $want"
+          test "$got" = "$want"
+      - name: Image logs
+        if: failure()
+        run: docker logs bx || true
