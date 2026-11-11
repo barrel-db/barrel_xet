@@ -49,3 +49,27 @@ xet download "$HASH" ./copy.safetensors
 ```
 
 Exit codes: 0 success, 1 error (or absent for `info`), 2 usage.
+
+## Admin commands
+
+With a token that has the admin scope, and a server started with
+`admin => #{enabled => true}`, `xet admin` drives the
+[admin endpoints](admin.md). The response JSON goes to stdout:
+
+```sh
+export XET_TOKEN=admin-token
+xet admin stats                   # store counts and GC status
+xet admin gc --dry-run            # what a collection would reclaim
+xet admin gc                      # start a collection
+xet admin gc-status
+xet admin scrub                   # start a verify-at-rest pass
+xet admin scrub-status
+xet admin backup                  # incremental metadata backup
+xet admin backup --checkpoint     # full checkpoint instead
+xet admin backups                 # newest first
+xet admin verify-backup 12
+xet admin delete-file <hash>
+```
+
+A refused request exits 1 with the reason on stderr, for example
+`admin request failed: 403 the token lacks the admin scope`.

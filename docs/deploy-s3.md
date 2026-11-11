@@ -109,3 +109,8 @@ suite runs against an in-memory fake.
 - S3 computes object ETags itself (an MD5 digest), so the `ETag` is not
   the xorb hash as it is on the filesystem backend. Clients verify chunks
   by hash anyway.
+- Garbage collection sweeps orphaned objects too (see
+  [Administer the server](admin.md)). It lists the bucket under each
+  configured namespace, 1000 keys per request; set `list_page` in the
+  `blob` map to change that. The credentials need `s3:ListBucket` on the
+  bucket in addition to get, put and delete.

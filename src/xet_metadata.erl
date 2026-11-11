@@ -25,6 +25,7 @@
     delete_file/2,
     delete_xorb/2,
     checkpoint/2,
+    backup/3,
     stats/1
 ]).
 
@@ -83,6 +84,11 @@
 -callback delete_xorb(term(), xet_hash:hash()) -> ok | {error, term()}.
 -callback checkpoint(term(), file:filename_all()) -> ok | {error, term()}.
 -callback stats(term()) -> map().
+%% Incremental backup into a backup directory, keeping the newest Keep.
+-callback backup(term(), file:filename_all(), pos_integer()) ->
+    {ok, xet_metadata_backup:info()} | {error, term()}.
+
+-optional_callbacks([backup/3]).
 
 -spec open(module(), map()) -> {ok, handle()} | {error, term()}.
 open(Mod, Opts) ->
@@ -153,3 +159,12 @@ checkpoint({Mod, State}, Path) -> Mod:checkpoint(State, Path).
 
 -spec stats(handle()) -> map().
 stats({Mod, State}) -> Mod:stats(State).
+
+%% Incremental backup when the backend supports it (rocksdb).
+-spec backup(handle(), file:filename_all(), pos_integer()) ->
+    {ok, xet_metadata_backup:info()} | {error, not_supported | term()}.
+backup({Mod, State}, BackupDir, Keep) ->
+    case erlang:function_exported(Mod, backup, 3) of
+        true -> Mod:backup(State, BackupDir, Keep);
+        false -> {error, not_supported}
+    end.

@@ -128,7 +128,7 @@ observability_enabled(Config) ->
             <<>>,
             [with_body, {pool, false}]
         ),
-        ?assertNotEqual(nomatch, binary:match(Metrics, <<"http.server.request.duration">>))
+        ?assertNotEqual(nomatch, binary:match(Metrics, <<"http_server_request_duration">>))
     after
         ok = xet_server:stop(xet_obs_server)
     end.

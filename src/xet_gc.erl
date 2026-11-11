@@ -110,15 +110,17 @@ status_map(#state{run = Run, last = Last}) ->
 
 %% Worker (runs in the spawned process).
 run(Name, Grace, DryRun) ->
-    #{metadata := Metadata, blob := Blob} = xet_server:env(Name),
+    #{metadata := Metadata, blob := Blob, config := Config} = xet_server:env(Name),
     MarkStart = erlang:monotonic_time(),
     Cutoff = erlang:system_time(second) - Grace,
     Marked = mark(Metadata),
     Candidates = collect_candidates(Metadata, Marked, Cutoff),
     {Deleted, Bytes} = sweep(Candidates, Metadata, Blob, MarkStart, DryRun),
-    {Orphans, OrphanBytes} = orphan_sweep(Blob, Metadata, Cutoff, DryRun),
+    Namespaces = maps:get(namespaces, Config),
+    {Orphans, OrphanBytes} = orphan_sweep(Blob, Namespaces, Metadata, Cutoff, DryRun),
     xet_gc_guard:prune(MarkStart),
     record_metrics(Deleted, Bytes),
+    record_orphan_metrics(Orphans, OrphanBytes, DryRun),
     #{
         dry_run => DryRun,
         candidates => length(Candidates),
@@ -211,45 +213,48 @@ batches(List, N) ->
     {Head, Tail} = lists:split(N, List),
     [Head | batches(Tail, N)].
 
-%% FS-only: reclaim blob files with no metadata that are older than the
-%% grace window (a put that crashed before register, or a GC crash after
-%% the metadata delete). Aged files are collected without the lock; the
-%% metadata check and delete run in bounded exclusive batches, so a
-%% concurrent xorb commit (also guarded) cannot lose its just-written
-%% blob. Other backends have no local listing here and are skipped.
-orphan_sweep({xet_store_fs, State}, Metadata, Cutoff, DryRun) ->
-    Candidates = xet_store_fs:fold_blobs(
-        State,
-        fun
-            ({Ns, Hash, Mtime}, Acc) when Mtime < Cutoff -> [{Ns, Hash} | Acc];
-            (_Blob, Acc) -> Acc
-        end,
-        []
-    ),
-    sweep_orphans(batches(Candidates, ?BATCH), State, Metadata, DryRun, {0, 0});
-orphan_sweep(_Blob, _Metadata, _Cutoff, _DryRun) ->
-    {0, 0}.
+%% Reclaim blobs with no metadata that are older than the grace window (a
+%% put that crashed before register, or a GC crash after the metadata
+%% delete), on any backend that can list its blobs (filesystem, S3). Aged
+%% blobs are collected without the lock; the metadata check and delete
+%% run in bounded exclusive batches, so a concurrent xorb commit (also
+%% guarded) cannot lose its just-written blob. A listing error skips the
+%% sweep for this run.
+orphan_sweep(Blob, Namespaces, Metadata, Cutoff, DryRun) ->
+    Aged = fun
+        ({Ns, Hash, Mtime}, Acc) when Mtime < Cutoff -> [{Ns, Hash} | Acc];
+        (_Entry, Acc) -> Acc
+    end,
+    case xet_blob_store:fold_blobs(Blob, Namespaces, Aged, []) of
+        {ok, Candidates} ->
+            sweep_orphans(batches(Candidates, ?BATCH), Blob, Metadata, DryRun, {0, 0});
+        {error, not_supported} ->
+            {0, 0};
+        {error, Reason} ->
+            logger:warning("gc orphan sweep skipped: blob listing failed: ~p", [Reason]),
+            {0, 0}
+    end.
 
-sweep_orphans([], _State, _Metadata, _DryRun, Acc) ->
+sweep_orphans([], _Blob, _Metadata, _DryRun, Acc) ->
     Acc;
-sweep_orphans([Batch | Rest], State, Metadata, DryRun, {N, Bytes}) ->
-    Delete = fun() -> delete_orphan_batch(Batch, State, Metadata, DryRun) end,
+sweep_orphans([Batch | Rest], Blob, Metadata, DryRun, {N, Bytes}) ->
+    Delete = fun() -> delete_orphan_batch(Batch, Blob, Metadata, DryRun) end,
     {D, B} =
         case xet_gc_guard:with_exclusive(?EXCLUSIVE_TIMEOUT, Delete) of
             {ok, R} -> R;
             {error, busy} -> {0, 0}
         end,
-    sweep_orphans(Rest, State, Metadata, DryRun, {N + D, Bytes + B}).
+    sweep_orphans(Rest, Blob, Metadata, DryRun, {N + D, Bytes + B}).
 
-delete_orphan_batch(Batch, State, Metadata, DryRun) ->
+delete_orphan_batch(Batch, Blob, Metadata, DryRun) ->
     lists:foldl(
         fun({Ns, Hash}, {N, Bytes}) ->
             case xet_metadata:xorb_exists(Metadata, Hash) of
                 true ->
                     {N, Bytes};
                 false ->
-                    Size = orphan_size(State, Ns, Hash),
-                    DryRun orelse (_ = xet_store_fs:delete(State, Ns, Hash)),
+                    Size = orphan_size(Blob, Ns, Hash),
+                    DryRun orelse (_ = xet_blob_store:delete(Blob, Ns, Hash)),
                     {N + 1, Bytes + Size}
             end
         end,
@@ -257,11 +262,17 @@ delete_orphan_batch(Batch, State, Metadata, DryRun) ->
         Batch
     ).
 
-orphan_size(State, Ns, Hash) ->
-    case xet_store_fs:size(State, Ns, Hash) of
+orphan_size(Blob, Ns, Hash) ->
+    case xet_blob_store:size(Blob, Ns, Hash) of
         {ok, Size} -> Size;
         _ -> 0
     end.
+
+record_orphan_metrics(_Orphans, _Bytes, true) ->
+    ok;
+record_orphan_metrics(Orphans, Bytes, false) ->
+    xet_metrics:count(<<"xet.gc.orphan_blobs">>, Orphans),
+    xet_metrics:count(<<"xet.gc.orphan_bytes">>, Bytes).
 
 record_metrics(Deleted, Bytes) ->
     xet_metrics:count(<<"xet.gc.runs">>, 1),

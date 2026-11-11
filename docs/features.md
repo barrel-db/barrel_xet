@@ -146,24 +146,39 @@ Each end-state item maps to a named test or smoke step (T12.1 sweep).
 | A `v*` tag publishes a GHCR image and a release tarball, both smoke-tested | `.github/workflows/release.yml` |
 | `make check` green; wire formats untouched | `.github/workflows/ci.yml`; `xet_crossimpl_SUITE`, `xet_interop_SUITE`, `xet_test_vectors` |
 
-## Deferred beyond 0.2
+## Phase 13: Operations (0.3.0)
 
-- Multi-node replication/HA implementation (0.3.0; design in T12.2)
-- S3 orphan-blob sweep, incremental backups (rocksdb backup engine)
-- JWT/OIDC auth, IP-keyed rate limiting (needs peer IP in livery)
-- Batch reconstructions, file-chunk-hashes endpoint (X-Range-Dirty)
-- multipart/byteranges data responses
+- [x] T13.1 Split config validation out of xet_config
+- [x] T13.2 S3 orphan-blob sweep
+- [x] T13.3 Incremental backups (rocksdb BackupEngine)
+- [x] T13.4 CLI admin subcommands
+
+## Phase 14: Client and protocol (0.3.0)
+
+- [ ] T14.1 Client chunk cache with LRU eviction and partial hits
+- [ ] T14.2 Merged fetch ranges
+- [ ] T14.3 Short range detection (file size on HEAD files)
+- [ ] T14.4 Batch reconstructions (xet-core)
+- [ ] T14.5 multipart/byteranges on the data endpoint
+- [ ] T14.6 file-chunk-hashes with X-Range-Dirty (xet-core)
+
+## Phase 15: Auth and tenancy (0.3.0)
+
+- [ ] T15.1 Principals with scope and namespaces
+- [ ] T15.2 JWT/OIDC auth backend
+- [ ] T15.3 Namespace access control (spec 14.4)
+- [ ] T15.4 IP-keyed rate limiting
+
+## Deferred beyond 0.3
+
+- Multi-node replication/HA implementation (later; design in T12.2)
 - Adaptive concurrency, barrel_docdb metadata backend
+- Multi-arch release images and tarballs (CI already builds and smokes both
+  arches), FreeBSD pkg(8) packages
 - HF Hub compatibility, to work as a transparent replacement. xet-core
   (hf_xet) already talks to the CAS unchanged; `huggingface_hub` goes
   through the Hub first. Two levels: the xet token exchange endpoints
   (`/api/{type}s/{repo}/xet-read-token/{rev}`, `xet-write-token`), or a
   Hub API subset (repos, revisions, `/resolve`, preupload and commit) so
   `HF_ENDPOINT` can point at barrel_xet
-- Multi-arch Docker images, FreeBSD CI builds and pkg(8) packages
-- CLI admin subcommands
-- Per-repository access control (spec 14.4); the server is single-tenant
-- Client chunk cache keyed by chunk hash with LRU eviction (13.2), merged
-  overlapping fetch ranges (12.3)
-- Detecting a short range reconstruction (needs the file size in the
-  response); accepting uppercase hex in hash strings
+- Accepting uppercase hex in hash strings

@@ -15,7 +15,8 @@
     store_metrics_labeled/1,
     put_survives_transient/1,
     put_exhausts_retries/1,
-    server_roundtrip/1
+    server_roundtrip/1,
+    fold_blobs_pages/1
 ]).
 
 -define(NS, <<"default">>).
@@ -28,7 +29,13 @@ all() ->
 %% (test/docker/garage-up.sh) or RustFS (test/docker/rustfs-up.sh).
 groups() ->
     Common = [
-        roundtrip, stream_put, missing_blob, idempotent_and_delete, presign, store_metrics_labeled
+        roundtrip,
+        stream_put,
+        missing_blob,
+        idempotent_and_delete,
+        presign,
+        store_metrics_labeled,
+        fold_blobs_pages
     ],
     %% Failure injection is a fake-server feature; a real S3 runs the
     %% rest, plus the server end to end over presigned URLs.
@@ -39,20 +46,17 @@ init_per_group(fake, Config) ->
     {ok, _} = application:ensure_all_started(livery),
     {ok, Fake} = xet_fake_s3:start(),
     Port = maps:get(port, Fake),
-    {ok, Store} = xet_blob_store:open(xet_store_s3, #{
+    Opts = #{
         bucket => <<"xet-test">>,
         s3 => #{
             endpoint => list_to_binary("http://127.0.0.1:" ++ integer_to_list(Port)),
             region => <<"garage">>,
             access_key_id => <<"test">>,
-            secret_access_key => <<"testsecret">>,
-            %% No connection pool: the fake server is single-use, and a
-            %% pooled keep-alive it has recycled surfaces as {error,
-            %% bad_request} on the next (streamed, non-replayable) request.
-            adapter_opts => #{hackney => [{pool, false}]}
+            secret_access_key => <<"testsecret">>
         }
-    }),
-    [{store, Store}, {fake, Fake} | Config];
+    },
+    {ok, Store} = xet_blob_store:open(xet_store_s3, Opts),
+    [{store, Store}, {store_opts, Opts}, {fake, Fake} | Config];
 init_per_group(live, Config) ->
     case os:getenv("XET_S3_ENDPOINT") of
         false ->
@@ -61,7 +65,7 @@ init_per_group(live, Config) ->
         _ ->
             {ok, _} = application:ensure_all_started(livery_s3),
             {ok, Store} = xet_blob_store:open(xet_store_s3, s3_opts()),
-            [{store, Store} | Config]
+            [{store, Store}, {store_opts, s3_opts()} | Config]
     end.
 
 %% Blob-store options for the live S3 named by the XET_S3_* variables.
@@ -185,9 +189,9 @@ store_metrics_labeled(Config) ->
     {ok, _} = xet_blob_store:get_range(Store, ?NS, <<26:256>>, 0, 777),
     Body = iolist_to_binary(instrument_prometheus:format()),
     Present = fun(Sub) -> ?assertNotEqual(nomatch, binary:match(Body, Sub)) end,
-    Present(<<"xet.store.op.duration">>),
-    Present(<<"xet.store.write.bytes">>),
-    Present(<<"xet.store.read.bytes">>),
+    Present(<<"xet_store_op_duration">>),
+    Present(<<"xet_store_write_bytes_total">>),
+    Present(<<"xet_store_read_bytes_total">>),
     Present(<<"backend=\"s3\"">>).
 
 %% The server on a real S3, end to end: the client uploads through the
@@ -220,3 +224,20 @@ server_roundtrip(Config) ->
     after
         ok = xet_server:stop(xet_s3_live_server)
     end.
+
+%% The orphan sweep's listing: every blob of a namespace, across pages
+%% (page size 2 here), with its mtime; keys that are not <ns>/<hash>
+%% (another tenant of a shared bucket) are skipped.
+fold_blobs_pages(Config) ->
+    {ok, Store} = xet_blob_store:open(
+        xet_store_s3, maps:put(list_page, 2, proplists:get_value(store_opts, Config))
+    ),
+    Ns = <<"fold-", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
+    Hashes = [crypto:strong_rand_bytes(32) || _ <- lists:seq(1, 5)],
+    [ok = xet_blob_store:put(Store, Ns, H, <<"blob">>) || H <- Hashes],
+    {xet_store_s3, #{client := Client, bucket := Bucket}} = Store,
+    {ok, _} = livery_s3:put_object(Client, Bucket, <<Ns/binary, "/not-a-hash">>, <<"x">>),
+    Now = erlang:system_time(second),
+    {ok, Seen} = xet_blob_store:fold_blobs(Store, [Ns], fun(E, Acc) -> [E | Acc] end, []),
+    ?assertEqual(lists:sort(Hashes), lists:sort([H || {_, H, _} <- Seen])),
+    ?assert(lists:all(fun({N, _, Mtime}) -> N =:= Ns andalso abs(Mtime - Now) < 600 end, Seen)).

@@ -11,12 +11,13 @@
 -module(xet_blob_store).
 
 -export([open/2, close/1, put/4, get_range/5, size/3, exists/3, delete/3, presign/4]).
--export([local_path/3, valid_namespace/1]).
+-export([local_path/3, fold_blobs/4, valid_namespace/1]).
 
 -type handle() :: {module(), term()}.
 -type body() :: iodata() | {stream, producer()}.
 -type producer() :: fun(() -> eof | {ok, binary(), producer()}).
--export_type([handle/0, body/0, producer/0]).
+-type blob_entry() :: {binary(), xet_hash:hash(), integer()}.
+-export_type([handle/0, body/0, producer/0, blob_entry/0]).
 
 -callback open(map()) -> {ok, term()} | {error, term()}.
 -callback close(term()) -> ok.
@@ -31,7 +32,12 @@
 -callback local_path(term(), binary(), xet_hash:hash()) ->
     {ok, file:filename_all()} | {error, term()}.
 
--optional_callbacks([presign/4, local_path/3]).
+%% Fold over every stored blob in the given namespaces, as
+%% {Ns, Hash, MtimePosix}. Used by the GC orphan sweep.
+-callback fold_blobs(term(), [binary()], fun((blob_entry(), Acc) -> Acc), Acc) ->
+    {ok, Acc} | {error, term()}.
+
+-optional_callbacks([presign/4, local_path/3, fold_blobs/4]).
 
 -spec open(module(), map()) -> {ok, handle()} | {error, term()}.
 open(Mod, Opts) ->
@@ -119,6 +125,16 @@ presign({Mod, State}, Ns, Hash, ExpiresSecs) ->
 local_path({Mod, State}, Ns, Hash) ->
     case erlang:function_exported(Mod, local_path, 3) of
         true -> Mod:local_path(State, Ns, Hash);
+        false -> {error, not_supported}
+    end.
+
+%% Fold over the blobs of the given namespaces when the backend can list
+%% them (the orphan sweep needs it); not_supported otherwise.
+-spec fold_blobs(handle(), [binary()], fun((blob_entry(), Acc) -> Acc), Acc) ->
+    {ok, Acc} | {error, not_supported | term()}.
+fold_blobs({Mod, State}, Namespaces, Fun, Acc) ->
+    case erlang:function_exported(Mod, fold_blobs, 4) of
+        true -> Mod:fold_blobs(State, Namespaces, Fun, Acc);
         false -> {error, not_supported}
     end.
 

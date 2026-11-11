@@ -32,6 +32,7 @@
     delete_file/2,
     delete_xorb/2,
     checkpoint/2,
+    backup/3,
     stats/1
 ]).
 
@@ -228,6 +229,9 @@ put_url_secret(#db{handle = Handle, meta = Meta}, Secret) ->
 
 checkpoint(#db{handle = Handle}, Path) ->
     rocksdb:checkpoint(Handle, Path).
+
+backup(#db{handle = Handle}, BackupDir, Keep) ->
+    xet_metadata_backup:create(Handle, BackupDir, Keep).
 
 stats(#db{handle = Handle, meta = Meta} = Db) ->
     #{

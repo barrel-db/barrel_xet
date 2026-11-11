@@ -22,6 +22,10 @@ ops-token admin
 
 With the surface disabled, the routes are absent (`404`).
 
+Every endpoint below is also a `xet admin` command; see
+[Command-line usage](cli.md#admin-commands). From Erlang, use
+`xet_client_admin`.
+
 ## GET /admin/stats
 
 Returns store counts as JSON.
@@ -92,11 +96,15 @@ Do not run the first collection within one grace window of upgrading
 from a release that did not stamp xorb creation times: those records
 default to age zero and would be eligible immediately if unreferenced.
 
-Collection also reclaims orphaned blobs on the filesystem backend: blob
-files with no metadata and an mtime older than the grace window (left by
-a put that crashed before registration, or a crash between the metadata
-and blob deletes). The S3 backend does not sweep orphans in this
-release; its object listing is a follow-up.
+Collection also reclaims orphaned blobs: blobs with no metadata that are
+older than the grace window (left by a put that crashed before
+registration, or a crash between the metadata and blob deletes). On the
+filesystem the age is the file mtime; on S3 it is the object's
+`LastModified`, and the bucket is listed one page at a time under each
+configured namespace (`<ns>/`), so other objects in a shared bucket are
+never touched. A dry run reports `orphan_blobs` and `orphan_bytes`
+without deleting. Real runs also count them in the
+`xet.gc.orphan_blobs` and `xet.gc.orphan_bytes` metrics.
 
 ## Scrub (verify-at-rest)
 
@@ -121,3 +129,11 @@ curl -H "Authorization: Bearer ops-token" http://127.0.0.1:8080/admin/scrub
 
 Findings are capped at 100 entries; `corrupt` and `read_errors` are the
 full counts.
+
+## Backups
+
+`POST /admin/backup` takes an incremental metadata backup (or a full
+checkpoint with `?mode=checkpoint`), `GET /admin/backups` lists them
+newest first, and `POST /admin/backups/{id}/verify` checks one. They need
+`backup_dir` in the config. See [Back up and restore](backup.md) for the
+procedure, the ordering with the blob copy, and restore.

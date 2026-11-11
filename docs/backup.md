@@ -9,29 +9,48 @@ only the metadata needs backing up.
 
 A deployment has two parts under `data_dir`:
 
-- `metadata/` — the rocksdb store (files, xorbs, chunk index, keys).
-- `xorbs/` — the blob tree (filesystem backend only).
+- `metadata/`: the rocksdb store (files, xorbs, chunk index, keys).
+- `xorbs/`: the blob tree (filesystem backend only).
+
+## Configure
+
+Set a backup directory and how many incremental backups to keep in the
+server map (the admin surface must be enabled):
+
+```erlang
+{server, #{
+    %% ...
+    admin => #{enabled => true},
+    backup_dir => "/backups/barrel_xet",
+    backup_keep => 7
+}}
+```
 
 ## Back up
 
-Order matters: checkpoint the metadata first, then copy the blobs, with
-garbage collection idle. A checkpoint at time T references only blobs
+Order matters: back up the metadata first, then copy the blobs, with
+garbage collection idle. A backup at time T references only blobs
 committed at or before T, and blobs are immutable, so a blob copy taken
-after the checkpoint is a superset. The reverse order can capture a
-checkpoint that references blobs the copy missed.
+after it is a superset. The reverse order can capture metadata that
+references blobs the copy missed.
 
-1. Configure a backup directory (`backup_dir` in the server map) and
-   trigger a metadata checkpoint:
+1. Take an incremental metadata backup:
 
    ```sh
    curl -X POST -H "Authorization: Bearer ops-token" \
        http://127.0.0.1:8080/admin/backup
    ```
 
-   The response gives the checkpoint path
-   (`<backup_dir>/<UTC-timestamp>/metadata`). The endpoint returns `409`
-   if garbage collection is running; wait for it to finish. Do not run
-   collection during the blob copy below.
+   ```json
+   {"mode": "incremental", "id": 12, "timestamp": 1794352377, "size": 8485, "files": 4}
+   ```
+
+   Backups live in `<backup_dir>/engine`. Each one shares the files it
+   has in common with the previous ones, so only what changed since is
+   copied. The oldest backups beyond `backup_keep` are removed. The
+   endpoint returns `409` while garbage collection or another backup is
+   running; wait and retry. Do not run collection during the blob copy
+   below.
 
 2. Copy the blob tree:
 
@@ -39,17 +58,48 @@ checkpoint that references blobs the copy missed.
    rsync -a /var/lib/barrel_xet/xorbs/ /backups/xorbs/
    ```
 
-The checkpoint uses hard links where it can, so it is fast and cheap on
-the same filesystem.
+List and check backups:
+
+```sh
+curl -H "Authorization: Bearer ops-token" http://127.0.0.1:8080/admin/backups
+curl -X POST -H "Authorization: Bearer ops-token" \
+    http://127.0.0.1:8080/admin/backups/12/verify
+```
+
+Verify checks that the backup's files are present with the sizes it
+recorded; it does not re-read their checksums.
+
+A full checkpoint (a complete, hard-linked copy in its own directory, as
+in 0.2) is still available:
+
+```sh
+curl -X POST -H "Authorization: Bearer ops-token" \
+    'http://127.0.0.1:8080/admin/backup?mode=checkpoint'
+```
+
+The response gives its path, `<backup_dir>/<UTC-timestamp>/metadata`.
 
 ## Restore
 
-1. Stop the node.
-2. Put the checkpoint in place as the metadata store:
+1. Restore the newest incremental backup into a side directory. The node
+   keeps serving meanwhile; `eval` runs on it:
 
    ```sh
-   rm -rf /var/lib/barrel_xet/metadata
-   cp -a /backups/<UTC-timestamp>/metadata /var/lib/barrel_xet/metadata
+   bin/barrel_xet eval 'ok = xet_metadata_backup:restore_latest("/backups/barrel_xet", "/var/lib/barrel_xet/metadata.restored").'
+   ```
+
+   From a checkpoint instead, copy it:
+
+   ```sh
+   cp -a /backups/barrel_xet/<UTC-timestamp>/metadata /var/lib/barrel_xet/metadata.restored
+   ```
+
+2. Stop the node and swap the restored store in:
+
+   ```sh
+   bin/barrel_xet stop
+   mv /var/lib/barrel_xet/metadata /var/lib/barrel_xet/metadata.old
+   mv /var/lib/barrel_xet/metadata.restored /var/lib/barrel_xet/metadata
    ```
 
 3. Put the blob tree in place:
@@ -59,15 +109,15 @@ the same filesystem.
    ```
 
 4. Start the node and verify with `/readyz` and a scrub
-   (`POST /admin/scrub`).
+   (`POST /admin/scrub`). Remove `metadata.old` once you are satisfied.
 
-If the blob copy was newer than the checkpoint, some blobs may have no
+If the blob copy was newer than the backup, some blobs may have no
 metadata; a later garbage collection reclaims them once they pass the
 grace window.
 
 ## Notes
 
-- The checkpoint is a consistent snapshot: writes after it are not
-  included, so back up on a schedule that matches your recovery point.
-- rocksdb also ships an incremental backup engine; wiring it is a
-  follow-up. For now each checkpoint is a full (hard-linked) snapshot.
+- A backup is a consistent snapshot: writes after it are not included,
+  so back up on a schedule that matches your recovery point.
+- The backup directory should be on another disk or synced off the host:
+  a backup on the same disk as `data_dir` does not survive losing it.

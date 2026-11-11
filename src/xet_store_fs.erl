@@ -13,7 +13,7 @@
 -include_lib("kernel/include/file.hrl").
 
 -export([open/1, close/1, put/4, get_range/5, size/3, exists/3, delete/3, local_path/3]).
--export([fold_blobs/3]).
+-export([fold_blobs/4]).
 
 open(#{dir := Root}) ->
     ok = filelib:ensure_path(Root),
@@ -127,22 +127,29 @@ blob_path(#{root := Root}, Ns, Hash) ->
             {error, bad_namespace}
     end.
 
-%% Fold Fun({Ns, Hash, MtimePosix}, Acc) over every stored blob. Used by
-%% the orphan-blob sweep; FS-specific, not a blob-store callback.
-fold_blobs(#{root := Root}, Fun, Acc0) ->
+%% Fold Fun({Ns, Hash, MtimePosix}, Acc) over the stored blobs of the
+%% given namespaces. Used by the orphan-blob sweep.
+fold_blobs(#{root := Root}, Namespaces, Fun, Acc0) ->
     RootDepth = length(filename:split(Root)),
-    filelib:fold_files(
-        Root,
-        "\\.xorb$",
-        true,
-        fun(Path, Acc) ->
-            case blob_of_path(RootDepth, Path) of
-                {ok, Entry} -> Fun(Entry, Acc);
-                error -> Acc
-            end
-        end,
-        Acc0
-    ).
+    {ok,
+        filelib:fold_files(
+            Root,
+            "\\.xorb$",
+            true,
+            fun(Path, Acc) ->
+                case blob_of_path(RootDepth, Path) of
+                    {ok, {Ns, _, _} = Entry} -> in_namespaces(Ns, Namespaces, Fun, Entry, Acc);
+                    error -> Acc
+                end
+            end,
+            Acc0
+        )}.
+
+in_namespaces(Ns, Namespaces, Fun, Entry, Acc) ->
+    case lists:member(Ns, Namespaces) of
+        true -> Fun(Entry, Acc);
+        false -> Acc
+    end.
 
 blob_of_path(RootDepth, Path) ->
     case lists:nthtail(RootDepth, filename:split(Path)) of

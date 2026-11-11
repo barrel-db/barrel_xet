@@ -5,6 +5,7 @@
 %%   xet up <file>                upload a file, print its file hash
 %%   xet download <hash> <out>    download a file to <out>
 %%   xet info <hash>              print whether the file exists on the server
+%%   xet admin <command>          admin endpoints (see xet_cli_admin)
 %%
 %% Configuration from the environment:
 %%   XET_ENDPOINT  base URL (default http://localhost:8080)
@@ -28,6 +29,8 @@ run(["download", HashStr, Out]) ->
     with_client(fun(Client) -> do_download(Client, HashStr, Out) end);
 run(["info", HashStr]) ->
     with_client(fun(Client) -> do_info(Client, HashStr) end);
+run(["admin" | Args]) ->
+    with_client(fun(Client) -> xet_cli_admin:run(Client, Args) end);
 run(_) ->
     usage(),
     2.
@@ -106,4 +109,5 @@ fail(Fmt, Args) ->
     1.
 
 usage() ->
-    io:format(standard_error, "usage: xet up <file> | download <hash> <out> | info <hash>~n", []).
+    io:format(standard_error, "usage: xet up <file> | download <hash> <out> | info <hash>~n", []),
+    xet_cli_admin:usage().

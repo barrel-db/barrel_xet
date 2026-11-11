@@ -27,6 +27,7 @@
     query_chunk/3,
     head_file/2
 ]).
+-export([request/4]).
 
 -type client() :: #{
     http := term(),
@@ -201,7 +202,10 @@ exists(Client, Path) ->
 reconstruction(Client, Version, HashStr, Headers) ->
     request(Client, get, reconstruction_path(Client, Version, HashStr), #{headers => Headers}).
 
-%% Retry/circuit/concurrency happen inside the client's layer stack.
+%% Authenticated request on the endpoint (bearer and session id added),
+%% for calls outside the protocol API, such as the admin endpoints. Retry,
+%% circuit and concurrency happen inside the client's layer stack.
+-spec request(client(), atom(), binary(), map()) -> {ok, map()} | {error, term()}.
 request(#{http := Http} = Client, Method, Path, Opts) ->
     case auth_headers(Client) of
         {ok, Auth} ->
