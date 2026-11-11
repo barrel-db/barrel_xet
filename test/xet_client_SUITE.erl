@@ -58,8 +58,13 @@ xorb(Seeds) ->
 entries(Enc) ->
     lists:zip(maps:get(chunk_hashes, Enc), maps:get(unpacked_sizes, Enc)).
 
+%% No retries: this checks the server's insert semantics, and a replayed
+%% POST (after a slow first response on a cold runner) would see the xorb
+%% already stored and answer was_inserted => false.
 upload_and_head_xorb(Config) ->
-    Client = client(Config),
+    Client = xet_client:new(#{
+        endpoint => proplists:get_value(endpoint, Config), token => ?TOKEN, retry => #{max => 0}
+    }),
     Enc = xorb([1, 2, 3]),
     Hash = maps:get(hash, Enc),
     ?assertEqual({ok, false}, xet_client:head_xorb(Client, <<"default">>, Hash)),

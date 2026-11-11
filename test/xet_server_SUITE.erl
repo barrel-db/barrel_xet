@@ -9,6 +9,7 @@
 -export([log/2]).
 -export([
     healthz/1,
+    empty_responses_keep_connection/1,
     unauthorized_without_token/1,
     forbidden_with_read_scope_on_write/1,
     authorized_unknown_route_is_404/1,
@@ -37,6 +38,7 @@
 all() ->
     [
         healthz,
+        empty_responses_keep_connection,
         unauthorized_without_token,
         forbidden_with_read_scope_on_write,
         authorized_unknown_route_is_404,
@@ -92,6 +94,40 @@ healthz(Config) ->
     {Status, _, Body} = get_(base(Config) ++ "/healthz", []),
     ?assertEqual(200, Status),
     ?assertEqual(#{<<"status">> => <<"ok">>}, json:decode(Body)).
+
+%% An empty response (here a HEAD 404) leaves nothing on the connection:
+%% the next response on the same keep-alive connection parses. A chunked
+%% terminator after a bodyless response would be read as the start of it.
+empty_responses_keep_connection(_Config) ->
+    {ok, Sock} = gen_tcp:connect("127.0.0.1", xet_server:port(xet_test_server), [
+        binary, {active, false}, {packet, http_bin}
+    ]),
+    Missing = binary:copy(<<"ab">>, 32),
+    ok = gen_tcp:send(Sock, [
+        <<"HEAD /api/v1/xorbs/default/">>,
+        Missing,
+        <<" HTTP/1.1\r\nHost: x\r\n">>,
+        <<"Authorization: Bearer read-token\r\n\r\n">>,
+        <<"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n">>
+    ]),
+    {Status1, Headers1} = read_head(Sock),
+    ?assertEqual(404, Status1),
+    ?assertEqual(<<"0">>, proplists:get_value('Content-Length', Headers1)),
+    ?assertEqual(undefined, proplists:get_value('Transfer-Encoding', Headers1)),
+    %% No body for HEAD: the next bytes are the healthz status line.
+    {Status2, _} = read_head(Sock),
+    ?assertEqual(200, Status2),
+    ok = gen_tcp:close(Sock).
+
+read_head(Sock) ->
+    {ok, {http_response, _, Status, _}} = gen_tcp:recv(Sock, 0, 5000),
+    {Status, read_headers(Sock, [])}.
+
+read_headers(Sock, Acc) ->
+    case gen_tcp:recv(Sock, 0, 5000) of
+        {ok, {http_header, _, Name, _, Value}} -> read_headers(Sock, [{Name, Value} | Acc]);
+        {ok, http_eoh} -> Acc
+    end.
 
 unauthorized_without_token(Config) ->
     {Status, _, _} = get_(base(Config) ++ "/api/v1/reconstructions/abc", []),

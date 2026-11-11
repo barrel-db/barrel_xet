@@ -1,0 +1,40 @@
+name: Set up barrel_xet build
+description: >
+  System libraries for the NIFs (rocksdb, blake3, lz4), Erlang/OTP and
+  rebar3, and a build cache keyed by OS, architecture, OTP and the lock
+  file. Linux runners only (apt).
+
+inputs:
+  otp:
+    description: OTP version
+    default: '29'
+  rebar3:
+    description: rebar3 version
+    default: '3.25.0'
+  cache-name:
+    description: Name that separates this job's build cache from the others
+    default: build
+  cache-path:
+    description: Build directories to cache
+    default: |
+      _build
+      ~/.cache/rebar3
+
+runs:
+  using: composite
+  steps:
+    - name: System deps for NIFs (rocksdb, blake3, lz4)
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends cmake build-essential curl \
+          liblz4-dev libsnappy-dev libzstd-dev zlib1g-dev libbz2-dev
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ inputs.otp }}
+        rebar3-version: ${{ inputs.rebar3 }}
+    - uses: actions/cache@v5
+      with:
+        path: ${{ inputs.cache-path }}
+        key: ${{ inputs.cache-name }}-${{ runner.os }}-${{ runner.arch }}-otp-${{ inputs.otp }}-${{ hashFiles('rebar.config', 'rebar.lock') }}
+        restore-keys: ${{ inputs.cache-name }}-${{ runner.os }}-${{ runner.arch }}-otp-${{ inputs.otp }}-
